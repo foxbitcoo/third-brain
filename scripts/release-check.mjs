@@ -35,6 +35,30 @@ const MAX_FILE_BYTES = 1_000_000;
 const MAX_TOTAL_BYTES = 5_000_000;
 const PLACEHOLDER = /^(?:<[^>]+>|(?:your|replace|example|shared|independent|synthetic|test|fake)[_-]|\$\{|\*{3}|\/(?:kso_|gh\(\?:|authorization\[)|\/[^\r\n]+\/[a-z]*;?$)/iu;
 
+const DOC_IMAGE_PATH = /^docs\/(?:assets|product\/assets\/screenshots|architecture\/assets)\/[^/]+\.(?:png|jpe?g)$/iu;
+export function isPublicDocImage(relative, bytes) {
+  if (!DOC_IMAGE_PATH.test(relative)) return false;
+  if (/\.png$/iu.test(relative)) {
+    if (bytes.length < 45 || bytes.subarray(0,8).toString('hex') !== '89504e470d0a1a0a') return false;
+    let offset=8, data=false, header=false;
+    while (offset + 12 <= bytes.length) {
+      const size=bytes.readUInt32BE(offset), type=bytes.subarray(offset+4,offset+8).toString('ascii');
+      if (size > bytes.length-offset-12) return false;
+      if (!header) {
+        if (type !== 'IHDR' || size !== 13) return false;
+        const width=bytes.readUInt32BE(offset+8),height=bytes.readUInt32BE(offset+12);
+        if (!width || !height || width*height > 50000000) return false;
+        header=true;
+      }
+      if (type === 'IDAT') data=true;
+      offset+=12+size;
+      if (type === 'IEND') return data && size === 0 && offset === bytes.length;
+    }
+    return false;
+  }
+  return bytes.length > 4 && bytes[0] === 255 && bytes[1] === 216 && bytes.at(-2) === 255 && bytes.at(-1) === 217;
+}
+
 async function listFiles(root, relative = "") {
   const directory = path.join(root, relative);
   const entries = await readdir(directory, { withFileTypes: true });
@@ -120,7 +144,7 @@ export async function checkPublicRelease(root, options = {}) {
       continue;
     }
     totalBytes += metadata.size;
-    if (metadata.size > MAX_FILE_BYTES) findings.push({ code: "file_too_large", file: relative });
+
 
     const basename = path.basename(relative);
     const extension = basename === ".gitignore"
@@ -138,12 +162,16 @@ export async function checkPublicRelease(root, options = {}) {
       || (extension === ".json" && !["package.json", "package-lock.json"].includes(basename))) {
       findings.push({ code: "forbidden_data_file", file: relative });
     }
-    if (!TEXT_EXTENSIONS.has(extension)) {
+    const imageCandidate = DOC_IMAGE_PATH.test(relative);
+    const maxBytes = imageCandidate ? 3_000_000 : MAX_FILE_BYTES;
+    if (metadata.size > maxBytes) findings.push({ code: "file_too_large", file: relative });
+    const bytes = imageCandidate ? await readFile(absolute) : null;
+    if (!TEXT_EXTENSIONS.has(extension) && !(bytes && isPublicDocImage(relative, bytes))) {
       findings.push({ code: "unsupported_binary_or_file_type", file: relative });
       continue;
     }
 
-    const content = await readFile(absolute, "utf8");
+    const content = bytes ? bytes.toString("utf8") : await readFile(absolute, "utf8");
     addPatternFindings(findings, relative, content, extension);
     for (const literal of denylist) {
       if (content.includes(literal)) findings.push({ code: "private_denylist_match", file: relative });

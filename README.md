@@ -93,7 +93,11 @@ flowchart LR
 
 ![业务问答：演示回答与引用](docs/product/assets/screenshots/answer.png)
 
-![依据回查：演示原始记录与引用定位](docs/product/assets/screenshots/evidence.png)
+证据按段落、列表、加粗和链接呈现。历史问答用节点、角色标签和提问高亮区分原始提问、历史答复与后续追问，时间和来源作为辅助信息。截断资料明确标注不完整；匿名展示保守隐藏无法完整解析的正文。
+
+![证据富文本与分层时间线：完全虚构的界面示意](docs/product/assets/screenshots/evidence.png)
+
+[查看可运行的通用展示示意](demo/evidence-timeline.html)（运行 `npm run demo` 后打开 `/evidence-timeline.html`）。此页只验证展示交互，不连接私人记录或分析服务，也不表示完整历史工单已进入公开 Alpha。
 
 ### 主动发现
 
