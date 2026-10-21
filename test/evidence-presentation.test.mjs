@@ -5,7 +5,7 @@ import {isPublicDocImage} from '../scripts/release-check.mjs';
 const html=await readFile(new URL('../demo/evidence-timeline.html',import.meta.url),'utf8');
 const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const helpers=script.slice(0,script.indexOf('const styled='));
-const {richMessageRuns,partialRichMessageRuns,safeSourceUrl}=new Function(helpers+';return {richMessageRuns,partialRichMessageRuns,safeSourceUrl};')();
+const {richMessageRuns,partialRichMessageRuns,safeSourceUrl,conversationView}=new Function(helpers+';return {richMessageRuns,partialRichMessageRuns,safeSourceUrl,conversationView};')();
 
 test('public evidence example decodes styled paragraphs and list items',()=>{
  const raw=JSON.stringify({rich_text:{elements:[{type:'ol',index:1,elements:[{type:'text',style_content:{text:'示例文字',style:{bold:true}}}]}]}});
@@ -32,4 +32,14 @@ test('release permits bounded documentation images but rejects wrong paths, malf
  assert.equal(isPublicDocImage('docs/product/assets/screenshots/fake.png',Buffer.from('not an image')),false);
  assert.equal(isPublicDocImage('docs/product/assets/screenshots/evidence.png',Buffer.concat([image,Buffer.from('extra payload')])),false);
  assert.equal(isPublicDocImage('docs/product/assets/screenshots/evidence.png',image.subarray(0,40)),false);
+});
+
+
+test('public mock conversation uses consistent people for authors mentions and reply targets',()=>{
+ const people=[{key:'a',label:'成员A'},{key:'b',label:'成员B'}];
+ const events=[{id:'q',source:'s',at:1,sender:'a',mentionKeys:['b']},{id:'r',source:'s',at:2,sender:'b',replyTo:'q'}];
+ const view=conversationView(events,people);
+ assert.equal(view[0].targets[0],view[1].author);
+ assert.equal(view[1].parent.id,'q');
+ assert.equal(conversationView([{...events[0],source:'other'},events[1]],people)[1].parent,null);
 });
