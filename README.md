@@ -245,3 +245,9 @@ npm run release:gate -- --denylist /absolute/private/denylist.txt
 由于发布环境没有安装者的 WPS 应用、OAuth 和模型 Key，以下必须由每位试用者首次运行时验证：WPS 权限审批、真实 OAuth、会话读取、消息分页、所选模型请求与结果质量。未验证能力不会写成已完成。
 
 进一步阅读：[安装](docs/INSTALL.md) · [架构](docs/ARCHITECTURE.md) · [模型配置](docs/MODEL-CONFIG.md) · [首版限制](docs/PREVIEW-LIMITS.md) · [隐私说明](docs/PRIVACY.md)
+
+### 会邀与文档更新
+
+新增独立的资料刷新入口：会邀补充工作安排，参会人的私聊先进入监控候选；会后检查记录，已准入文档按版本及正文哈希更新，日报、周报的图片另存本地并记录识别覆盖。网页“来源”可加载本地回执并查看原图。未核实关联和未读图片会保留待处理状态。
+
+见 [接入说明与验收边界](docs/product/calendar-document-context.md)。该入口需单独配置日历及云文档连接，默认不执行付费图片理解；原有 Alpha 群聊分析范围保持明确，不自动发布会议结论或 Memory。

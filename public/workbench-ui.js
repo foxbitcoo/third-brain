@@ -19,7 +19,7 @@ const post = (url, body) => request(url, {
 const routePanels = {
   home: ["home"],
   decisions: ["analysisPanel", "decisions"],
-  sources: ["sources", "sourceImport"],
+  sources: ["sources", "sourceImport", "contextSources"],
   relationships: ["relationships"],
   settings: ["settings"],
 };
@@ -74,6 +74,19 @@ async function renderWorkbench() {
   const workbench = await request("/api/public-workbench");
   byId("workbench").innerHTML = "<p class=\"workbench-label\">候选区 · 判读区 · 冲突确认区</p>"
     + workbench.candidates.map(candidateCard).join("");
+}
+
+async function renderContext(){
+ try{
+  const context=await request('/api/context-sources');if(!context.configured)return;
+  const esc=escapeHtml;
+  const states={NOT_DUE:'会议尚未结束',RECORD_CHECK_DUE:'会后待查记录',CANCELED:'已取消',TIME_UNAVAILABLE:'时间待核对'};
+  byId('contextResult').innerHTML='<p>'+esc(context.updatedAt)+' · '+(context.status==='COMPLETE'?'本轮检查完成':'部分完成，保留待补读项')+'</p>'
+   +context.events.map(e=>'<article class="workbench-card"><h3>'+esc(e.title)+'</h3><p>'+esc(e.start)+' — '+esc(e.end)+'</p><p>'+esc(states[e.state]||e.state)+' · '+e.attendees.map(a=>esc(a.name)).join('、')+'</p><small>会邀是工作安排，不代表会议已举行或行动已完成。</small></article>').join('')
+   +'<details><summary>参会人候选（'+context.candidates.length+'）</summary>'+context.candidates.map(c=>'<p>'+esc(c.name)+' · 仅候选，未自动关注</p>').join('')+'</details>'
+   +'<details><summary>文档与图片（'+context.documents.length+'）</summary>'+context.documents.map(d=>'<article class="workbench-card"><h3>'+esc(d.title)+'</h3><p>版本 '+esc(d.version??'未知')+' · '+esc(d.change)+' · 图片 '+d.imagesRead+'/'+d.imageCount+' 已识别</p>'+d.images.map(i=>'<figure><img loading="lazy" style="max-width:100%;max-height:480px;object-fit:contain" src="'+esc(i.url)+'" alt="文档原图"><figcaption>'+esc(i.heading)+'</figcaption></figure>').join('')+'</article>').join('')+'</details>'
+   +'<details><summary>会后检查（'+context.meetingChecks.length+'）</summary>'+context.meetingChecks.map(m=>'<p>'+esc(states[m.state]||m.state)+(m.complete?'':' · 覆盖不完整')+'</p>').join('')+'</details>';
+ }catch{byId('contextResult').textContent='本地资料刷新回执暂时无法读取。';}
 }
 
 window.confirmConflict=async (candidateId) => {
@@ -189,5 +202,6 @@ async function initializeWorkbench() {
   renderRoute();
   await refreshStatus();
   await renderWorkbench();
+  await renderContext();
 }
 void initializeWorkbench();

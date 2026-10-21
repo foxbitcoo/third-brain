@@ -17,7 +17,8 @@
     "release:gate": "node scripts/release-gate.mjs",
     "preflight": "node scripts/preflight.mjs",
     "demo": "node scripts/serve-demo.mjs",
-    "verify": "node scripts/verify-standalone.mjs"
+    "verify": "node scripts/verify-standalone.mjs",
+    "test:context": "python3 -m unittest discover -s test -p \"*_test.py\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0"

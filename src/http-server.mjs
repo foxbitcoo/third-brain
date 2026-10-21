@@ -51,6 +51,11 @@ export function createLocalHttpServer({ runtime, indexFile }) {
     try {
       assertLoopbackHost(request);
       const url = new URL(request.url, "http://127.0.0.1");
+      if(request.method==='GET'&&url.pathname==='/api/context-sources')return json(response,200,await runtime.readContextSources());
+      if(request.method==='GET'&&url.pathname==='/api/context-image'){
+        const image=await runtime.readContextImage(url.searchParams.get('document'),url.searchParams.get('hash'));
+        response.writeHead(200,{'content-type':image.mime,'cache-control':'no-store','x-content-type-options':'nosniff'});response.end(image.body);return;
+      }
       if (request.method === "GET" && url.pathname === "/") {
         const html = await readFile(indexPath, "utf8");
         response.writeHead(200, {

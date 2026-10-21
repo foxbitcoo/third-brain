@@ -4,6 +4,7 @@ const FORBIDDEN_BASENAMES = new Set([
   ".git",
   ".runtime",
   "node_modules",
+  "__pycache__",
   ".npmrc",
   ".yarnrc",
   ".pypirc",

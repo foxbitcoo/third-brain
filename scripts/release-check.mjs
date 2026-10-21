@@ -31,6 +31,7 @@ const REQUIRED_FILES = Object.freeze([
 ]);
 
 const TEXT_EXTENSIONS = new Set([".md", ".html", ".css", ".js", ".mjs", ".json", ".example", ".gitignore", ".txt"]);
+const PYTHON_SOURCES = new Set(['src/context_refresh.py','scripts/refresh-context.py','test/context_refresh_test.py']);
 const MAX_FILE_BYTES = 1_000_000;
 const MAX_TOTAL_BYTES = 5_000_000;
 const PLACEHOLDER = /^(?:<[^>]+>|(?:your|replace|example|shared|independent|synthetic|test|fake)[_-]|\$\{|\*{3}|\/(?:kso_|gh\(\?:|authorization\[)|\/[^\r\n]+\/[a-z]*;?$)/iu;
@@ -64,7 +65,7 @@ async function listFiles(root, relative = "") {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name === "node_modules" || entry.name === ".git") continue;
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === '__pycache__') continue;
     const child = path.join(relative, entry.name);
     if (entry.isDirectory()) files.push(...await listFiles(root, child));
     else files.push(child);
@@ -166,7 +167,7 @@ export async function checkPublicRelease(root, options = {}) {
     const maxBytes = imageCandidate ? 3_000_000 : MAX_FILE_BYTES;
     if (metadata.size > maxBytes) findings.push({ code: "file_too_large", file: relative });
     const bytes = imageCandidate ? await readFile(absolute) : null;
-    if (!TEXT_EXTENSIONS.has(extension) && !(bytes && isPublicDocImage(relative, bytes))) {
+    if (!TEXT_EXTENSIONS.has(extension) && !PYTHON_SOURCES.has(relative) && !(bytes && isPublicDocImage(relative, bytes))) {
       findings.push({ code: "unsupported_binary_or_file_type", file: relative });
       continue;
     }
