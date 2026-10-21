@@ -1,0 +1,114 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>第三大脑 · 证据与对话展示示意</title><style>
+:root{--ink:#1f2329;--secondary:#646a73;--muted:#8f959e;--line:#e8e9eb;--blue:#3370ff;--soft:#f5f6f7;--green:#25836a;--orange:#b26a12;--paper:#fff;--blue-soft:#f0f5ff}
+*{box-sizing:border-box}body{margin:0;padding:20px;background:var(--soft);color:var(--ink);font:14px/1.8 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}h1,h2,h3,p{margin:0}a{color:var(--blue)}header{max-width:1160px;margin:0 auto 16px}header h1{font-size:24px}header p{color:var(--secondary);font-size:12px}main{max-width:1160px;margin:auto;display:grid;grid-template-columns:1fr 1.2fr;gap:24px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:8px;overflow:hidden}.panel-title{padding:18px 24px;border-bottom:1px solid var(--line);font-weight:600;font-size:16px}.content{padding:20px}.meta{font-size:11px;color:var(--secondary);margin:10px 0}.badge{display:inline-block;padding:2px 7px;border-radius:4px;background:var(--soft);font-size:11px;color:var(--secondary)}.blue{background:var(--blue-soft);color:var(--blue)}.green{background:#e8f5ef;color:var(--green)}.orange{background:#fff4e6;color:var(--orange)}.rich{white-space:pre-wrap;overflow-wrap:anywhere}.rich strong{font-weight:600}.rich code{background:var(--soft);padding:2px 4px}.evidence{border:1px solid var(--blue);border-radius:6px;padding:18px}.evidence h3{font-size:15px;margin:12px 0 4px}.evidence blockquote{border-left:2px solid var(--line);margin:16px 0 0;padding-left:14px}.history-title{font-size:20px;line-height:1.5;margin-top:10px}.note{padding:10px 12px;background:var(--soft);border-radius:5px;color:var(--secondary);font-size:12px;margin:12px 0 16px}.heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.heading h3{font-size:15px}.heading span{font-size:11px;color:var(--secondary)}ol.timeline{list-style:none;border-left:2px solid var(--line);padding:0 0 0 22px;margin:0 0 0 5px}.event{position:relative;padding-bottom:18px}.event:before{content:"";position:absolute;left:-28px;top:9px;width:10px;height:10px;border:2px solid var(--blue);border-radius:50%;background:var(--paper)}.event.reply:before{border-color:var(--green);background:var(--green)}.event.followup:before{border-color:var(--orange)}.event-head{display:flex;gap:8px;align-items:center;font-size:13px}.event .meta{margin:5px 0 8px}.question .body{background:var(--blue-soft);border-left:3px solid var(--blue);border-radius:6px;padding:14px 16px}.body{font-size:14px;white-space:pre-wrap;line-height:1.9}.reply-link{color:var(--secondary);font-size:11px;margin-top:8px}button{font:inherit;cursor:pointer;background:var(--blue-soft);border:0;color:var(--blue);border-radius:4px;padding:5px 10px}.boundary{font-size:11px;color:var(--secondary);margin-top:20px}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:800px){body{padding:18px}main{grid-template-columns:1fr}.content{padding:18px}}
+</style><header><h1>证据回查与历史问答</h1><p>完全虚构的界面示意 · 不连接模型、办公数据或查数服务</p></header><main><section class="panel"><div class="panel-title">依据原文</div><div class="content"><article class="evidence"><span class="badge blue">已定位</span> <span class="badge">IM 消息</span><h3>示例讨论组</h3><p class="meta">分析角色 · 01/08 10:20</p><blockquote id="evidence" class="rich"></blockquote></article><p class="boundary">正文保留段落、列表、加粗与安全链接；原始格式数据不直接铺在阅读区。</p><details><summary>查看示例原始格式</summary><pre id="raw"></pre></details></div></section><section class="panel"><div class="panel-title">历史问答原文</div><div class="content"><span class="badge">结论待核对</span><h2 class="history-title">示例服务完成量变化排查</h2><p class="meta">首次提问 01/08 09:10 · 最近活动 01/08 10:30</p><p class="note">已形成分析草稿，业务原因仍待核对。历史答复不等于原因已经验证。</p><div class="heading"><h3>提问与答复记录</h3><span>3 条记录</span></div><ol class="timeline" id="timeline"></ol><button id="toggle">展开引用原图说明</button><p id="image-note" class="boundary" hidden>此处仅展示引用关系，不加载真实看板或图片。</p></div></section></main><script>
+function richMessageRuns(value) {
+  if (typeof value !== 'string' || value.length > 1000000) return null;
+  try {
+    const envelope = JSON.parse(value);
+    if (!envelope || Object.keys(envelope).length !== 1 || !envelope.rich_text
+      || Object.keys(envelope.rich_text).length !== 1 || !Array.isArray(envelope.rich_text.elements)) return null;
+    let remaining = 500;
+    const decode = (node, depth) => {
+      if (!node || typeof node !== 'object' || Array.isArray(node) || depth > 8 || --remaining < 0) return null;
+      const fields = { nl: [], ol: [], ul: [], text: ['text_content', 'style_content'], mention: ['mention_content'], doc: ['doc_content'], image: ['image_content'] }[node.type];
+      if (!fields || Object.keys(node).some(key => !['type', 'alt_text', 'elements', 'indent', 'index', ...fields].includes(key))) return null;
+      if (['nl', 'ol', 'ul'].includes(node.type)) {
+        if (!Array.isArray(node.elements)) return null;
+        const children = node.elements.map(child => decode(child, depth + 1));
+        const marker = node.type === 'ul' ? '• ' : node.type === 'ol' ? `${Number.isSafeInteger(node.index) && node.index >= 0 ? node.index + 1 : 1}. ` : '';
+        return children.some(child => child === null) ? null : [...(marker ? [{ text: marker }] : []), ...children.flat(), { text: '\n' }];
+      }
+      if (node.elements != null && (!Array.isArray(node.elements) || node.elements.length)) return null;
+      if (node.type === 'text') {
+        const content = node.style_content;
+        if (content && (typeof content !== 'object' || typeof content.text !== 'string')) return null;
+        const body = content ? content.text : node.text_content?.content;
+        if (typeof body !== 'string') return null;
+        const url = content?.url;
+        if (url && !safeSourceUrl(url)) return null;
+        const sourceStyle = content?.style || {};
+        const style = Object.fromEntries(['bold', 'italic', 'underline', 'strike', 'code'].filter(key => sourceStyle[key] === true).map(key => [key, true]));
+        return [{ text: body, style, ...(url ? { href: safeSourceUrl(url) } : {}) }];
+      }
+      if (node.type === 'mention') {
+        const name = node.mention_content?.text;
+        return typeof name === 'string' && name.trim() && !/[<>]/.test(name)
+          ? [{ text: `<mention>${name.replace(/^@/, '')}</mention>` }] : null;
+      }
+      if (node.type === 'image') return node.image_content && typeof node.image_content === 'object' ? [{ text: '[图片附件]' }] : null;
+      const title = node.doc_content?.text, url = node.doc_content?.file?.link_url;
+      if (typeof title !== 'string' || (url !== undefined && !safeSourceUrl(url))) return null;
+      return [{ text: title, ...(url ? { href: safeSourceUrl(url) } : {}) }];
+    };
+    const nodes = envelope.rich_text.elements.map(node => decode(node, 0));
+    return nodes.some(node => node === null) ? null : nodes.flat();
+  } catch { return null; }
+}
+
+// Imported excerpts can end inside a JSON string. Recover only fully closed,
+// recognized leaf nodes, never fabricate the missing suffix or its conclusions.
+function partialRichMessageRuns(value) {
+  if (typeof value !== 'string' || value.length > 1000000 || !/^\s*\{\s*"rich_text"\s*:\s*\{\s*"elements"\s*:\s*\[/.test(value)) return null;
+  try { JSON.parse(value); return null; } catch { /* Partial source only. */ }
+  const keys = {
+    root: ['rich_text'], rich: ['elements'],
+    node: ['type', 'alt_text', 'elements', 'indent', 'index', 'style_content', 'text_content', 'mention_content', 'doc_content', 'image_content'],
+    style_content: ['style', 'text', 'url', 'url_title'], style: ['bold', 'color', 'italic', 'strike', 'underline', 'code'],
+    text_content: ['content'], mention_content: ['identity', 'text', 'type'], identity: ['id', 'user_id', 'identity_id', 'company_id'],
+    doc_content: ['text', 'file'], file: ['link_url', 'link_id', 'id', 'name', 'type'],
+    image_content: ['type', 'storage_key', 'url', 'download_url', 'name', 'width', 'height', 'size', 'thumbnail_storage_key', 'thumbnail_type'],
+  };
+  const stack = [], runs = [];
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i], parent = stack.at(-1);
+    if (char === '"') {
+      let end = i + 1;
+      for (; end < value.length; end++) { if (value[end] === '\\') end++; else if (value[end] === '"') break; }
+      if (end >= value.length) break;
+      let token; try { token = JSON.parse(value.slice(i, end + 1)); } catch { return null; }
+      let next = end + 1; while (/\s/.test(value[next] || '') && next < value.length) next++;
+      if (value[next] === ':') {
+        if (!keys[parent?.role]?.includes(token)) return null;
+        parent.key = token;
+      } else if (parent?.role === 'node' && parent.key === 'type' && !['nl', 'ol', 'ul', 'text', 'mention', 'doc', 'image'].includes(token)) return null;
+      i = end;
+    } else if (char === '{' || char === '[') {
+      if (stack.length > 30) return null;
+      const role = !parent ? 'root' : parent.role === 'nodes' ? 'node'
+        : parent.role === 'root' && parent.key === 'rich_text' ? 'rich'
+        : ['rich', 'node'].includes(parent.role) && parent.key === 'elements' ? 'nodes'
+        : parent.key;
+      if (char === '[' ? role !== 'nodes' : !keys[role]) return null;
+      stack.push({role, start:i, runStart:runs.length, char});
+    } else if (char === '}' || char === ']') {
+      const frame = stack.pop();
+      if (!frame || (char === '}' ? frame.char !== '{' : frame.char !== '[')) return null;
+      if (frame.role !== 'node') continue;
+      let node; try { node = JSON.parse(value.slice(frame.start, i + 1)); } catch { return null; }
+      const decoded = richMessageRuns(JSON.stringify({rich_text:{elements:[node]}}));
+      if (!decoded) return null;
+      // Replace any collected descendants with the complete parent, preserving
+      // original paragraph/list boundaries rather than splitting styled runs.
+      runs.splice(frame.runStart, runs.length - frame.runStart, ...decoded);
+      if (runs.length > 1000) return null;
+    }
+  }
+  return runs.length ? runs : null;
+}
+
+
+function safeSourceUrl(value){try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password?u.href:null}catch{return null}}
+function renderRich(target,value){
+ const complete=richMessageRuns(value),runs=complete||partialRichMessageRuns(value);
+ if(!runs){target.textContent=value;return}
+ if(!complete){const note=document.createElement('p');note.textContent='原文片段 · 内容不完整';target.append(note)}
+ for(const run of runs){let node=document.createTextNode(run.text.replace(/<(?:mention|at)[^>]*>(.*?)<\/(?:mention|at)>/g,'@$1'));for(const [key,tag] of [['code','code'],['bold','strong'],['italic','em'],['underline','u'],['strike','s']])if(run.style?.[key]){const parent=document.createElement(tag);parent.append(node);node=parent}if(run.href){const link=document.createElement('a');link.href=run.href;link.target='_blank';link.rel='noopener noreferrer';link.append(node);node=link}target.append(node)}
+}
+const styled=text=>({type:'text',style_content:{text,style:{}}});
+const evidence=JSON.stringify({rich_text:{elements:[{type:'nl',elements:[{type:'text',style_content:{text:'完成量变化核对',style:{bold:true}}}]},{type:'nl',elements:[styled('已核对统计日期与比较口径。')]},{type:'ol',index:0,elements:[styled('分别检查总体与各端数据。')]},{type:'ol',index:1,elements:[styled('把数值核对和原因判断分开记录。')]},{type:'nl',elements:[{type:'text',style_content:{text:'查看示例报告说明',url:'https://example.org/',style:{underline:true}}}]}]}});
+renderRich(document.getElementById('evidence'),evidence);document.getElementById('raw').textContent=evidence;
+const events=[{kind:'question',label:'原始提问',badge:'blue',speaker:'提问角色',time:'01/08 09:10',body:'昨日完成量较上周同日下降，差异集中在哪个端？请先核对口径，再看分组。'},{kind:'reply',label:'历史答复',badge:'green',speaker:'分析角色',time:'01/08 10:20',body:'已完成统计日期与分组范围核对。结果已整理为分析草稿，原因仍待确认。',ref:true},{kind:'followup',label:'后续追问',badge:'orange',speaker:'提问角色',time:'01/08 10:30',body:'请补充两个端的变化对比，并区分已核实的结果和待验证假设。',ref:true}];
+for(const e of events){const li=document.createElement('li');li.className='event '+e.kind;const head=document.createElement('div');head.className='event-head';const badge=document.createElement('span');badge.className='badge '+e.badge;badge.textContent=e.label;const person=document.createElement('strong');person.textContent=e.speaker;head.append(badge,person);const meta=document.createElement('p');meta.className='meta';meta.textContent=e.time+' · 示例讨论组';const body=document.createElement('div');body.className='body';body.textContent=e.body;li.append(head,meta,body);if(e.ref){const ref=document.createElement('p');ref.className='reply-link';ref.textContent='↳ 引用回复 · 关联原消息已保留';li.append(ref)}document.getElementById('timeline').append(li)}
+document.getElementById('toggle').onclick=()=>{const note=document.getElementById('image-note');note.hidden=!note.hidden;document.getElementById('toggle').setAttribute('aria-expanded',String(!note.hidden))};
+</script></html>
