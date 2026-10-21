@@ -58,10 +58,14 @@ def unwrap(value):
     raise RuntimeError('INVALID_PROVIDER_RESPONSE')
 
 
-def pages(call, path, params, max_pages=10):
+def pages(call, path, params, max_pages=10, check=None):
     rows, seen = [], set()
     for _ in range(max_pages):
+        if check:
+            check()
         payload = unwrap(call(path, params))
+        if check:
+            check()
         rows.extend(payload.get('items', []))
         cursor = payload.get('next_page_token')
         if not cursor:
@@ -130,21 +134,43 @@ def refresh_im(config, prior, transport):
     rows, receipts = [], []
     for source in config.get('imSources', []):
         # The caller supplies its established read plan; recheck the current ban/status at read time.
-        current = load(config.get('attentionPath'), {}).get('sources', [])
-        match = next((s for s in current if s.get('id') == source['sourceId']), None)
-        if not match or match.get('status') != 'active':
+        def permitted():
+            current = load(config.get('attentionPath'), {}).get('sources', [])
+            match = next((s for s in current if s.get('id') == source['sourceId']), None)
+            trusted = match and match.get('status') == 'active' and (match.get('manualOverride') is True or (
+                (match.get('lastEvaluatedAt') or match.get('decisionOrigin') == 'imported') and match.get('matchedWorklines')
+                and match.get('evidenceRefs') and match.get('decisionOrigin') != 'keyword'))
+            if not trusted:
+                raise RuntimeError('SOURCE_POLICY_CHANGED')
+        try:
+            permitted()
+        except RuntimeError:
             receipts.append(dict(sourceId=source['sourceId'], status='POLICY_CHANGED', complete=False))
             continue
         committed = prior.get('im', {}).get('receipts', []) if prior.get('integrationStatus') == 'INGESTED' else []
-        previous = next((r for r in committed if r.get('sourceId') == source['sourceId'] and r.get('complete')), {})
-        start = previous.get('through') or source['start']
-        end = utcnow()
-        messages, complete = pages(transport.get, '/v7/chats/' + str(source['chatId']) + '/messages',
-            dict(start_time=int(dt.datetime.fromisoformat(start.replace('Z', '+00:00')).timestamp()),
-                 end_time=int(dt.datetime.fromisoformat(end).timestamp()), page_size=50,
-                 order='by_create_time_asc', with_sender_details='true'), 20)
+        previous = next((r for r in committed if r.get('sourceId') == source['sourceId']), {})
+        start = (previous.get('through') if previous.get('complete') else previous.get('start')) or source['start']
+        end = previous.get('through') if previous.get('nextPageToken') else utcnow()
+        cursor = previous.get('nextPageToken')
+        messages, complete, seen = [], False, set()
+        for _ in range(20):
+            permitted()
+            params = dict(start_time=int(dt.datetime.fromisoformat(start.replace('Z', '+00:00')).timestamp()),
+                end_time=int(dt.datetime.fromisoformat(end.replace('Z', '+00:00')).timestamp()), page_size=50, order='by_create_time_asc', with_sender_details='true')
+            if cursor:
+                params['page_token'] = cursor
+            payload = unwrap(transport.get('/v7/chats/' + str(source['chatId']) + '/messages', params))
+            permitted()
+            messages.extend(payload.get('items', []))
+            cursor = payload.get('next_page_token')
+            if not cursor:
+                complete = not payload.get('has_more', False)
+                break
+            if cursor in seen:
+                raise RuntimeError('REPEATED_CURSOR')
+            seen.add(cursor)
         rows.extend(dict(sourceId=source['sourceId'], chatId=str(source['chatId']), sourceTitle=source['title'], message=m) for m in messages)
-        receipts.append(dict(sourceId=source['sourceId'], status='READ', complete=complete, start=start, through=end, count=len(messages)))
+        receipts.append(dict(sourceId=source['sourceId'], status='READ', complete=complete, start=start, through=end, nextPageToken=cursor, count=len(messages)))
     return dict(rows=rows, receipts=receipts, complete=all(r['complete'] for r in receipts))
 
 
@@ -159,11 +185,26 @@ def semantic_hash(text):
 def needs_read(meta, prior):
     if not prior or not prior.get('contentHash'):
         return True
+    if meta.get('version') is None:
+        return True
     if meta.get('version') is not None and prior.get('sourceVersion') is not None and meta.get('version') != prior.get('sourceVersion'):
         return True
     if meta.get('mtime') is not None and meta.get('mtime') != prior.get('sourceModifiedAt'):
         return True
     return (meta.get('version') is None and meta.get('mtime') is None) or (not prior.get('mediaChecked', False) and not prior.get('mediaDeferred', False))
+
+
+def assert_document_allowed(config, file_id):
+    if not config.get('documentPolicyPath'):
+        return
+    current = load(config['documentPolicyPath'], {}).get('documents', [])
+    selected = next((d for d in current if str(d.get('documentId')) == file_id and d.get('status') == 'allowed'), None)
+    parent = selected.get('requiresParentSourceId') if selected else None
+    parents = load(config.get('attentionPath'), {}).get('sources', [])
+    parent_allowed = not parent or any(s.get('id') == parent and s.get('status') == 'active' and (
+        s.get('manualOverride') is True or ((s.get('lastEvaluatedAt') or s.get('decisionOrigin') == 'imported') and s.get('matchedWorklines') and s.get('evidenceRefs') and s.get('decisionOrigin') != 'keyword')) for s in parents)
+    if not selected or not parent_allowed:
+        raise RuntimeError('DOCUMENT_POLICY_CHANGED')
 
 
 def image_refs(text):
@@ -208,8 +249,14 @@ class Transport:
             raise
 
     def drive(self, action, params):
+        return self.cli('drive', action, params)
+
+    def otl(self, action, params):
+        return self.cli('otl', action, params)
+
+    def cli(self, scope, action, params):
         self.throttle()
-        result = subprocess.run(['kdocs-cli', 'drive', action, json.dumps(params, ensure_ascii=False), '--timeout=120000'],
+        result = subprocess.run(['kdocs-cli', scope, action, json.dumps(params, ensure_ascii=False), '--timeout=120000'],
             capture_output=True, text=True, timeout=150)
         try:
             return unwrap(json.loads(result.stdout))
@@ -219,6 +266,36 @@ class Transport:
             raise
         except (ValueError, TypeError):
             raise RuntimeError('DRIVE_RESPONSE_UNAVAILABLE') from None
+
+
+def otl_images(value):
+    result, text, heading, dated_heading = [], '', '', ''
+    def walk(node):
+        nonlocal text, heading, dated_heading
+        if isinstance(node, list):
+            for child in node:
+                walk(child)
+            return
+        if not isinstance(node, dict):
+            return
+        kind, attrs = node.get('type'), node.get('attrs') or {}
+        if kind == 'heading':
+            heading = ''.join(c.get('content', '') for c in node.get('content', []) if isinstance(c.get('content'), str))
+            if re.search(r'20\d{2}[-/]\d{1,2}[-/]\d{1,2}', heading):
+                dated_heading = heading
+        if kind == 'text' and isinstance(node.get('content'), str):
+            text = (text + node['content'])[-700:]
+        if kind == 'picture' and isinstance(attrs.get('sourceKey'), str):
+            result.append(dict(index=len(result), alt='文档原图', sourceKey=attrs['sourceKey'], blockId=node.get('id'),
+                heading=' / '.join(dict.fromkeys(filter(None, [dated_heading, heading]))), context=text[-700:], state='PENDING'))
+        walk(node.get('content', []))
+    detail = value.get('detail', {}).get('result') or value.get('result') or value
+    walk(detail.get('blocks', []))
+    for block in detail.get('blocks', []):
+        cover = (block.get('attrs') or {}).get('cover') or {}
+        if isinstance(cover, dict) and isinstance(cover.get('sourceKey'), str) and cover['sourceKey']:
+            result.append(dict(index=len(result), alt='文档封面', sourceKey=cover['sourceKey'], blockId=block.get('id'), heading='文档封面', context='文档封面', state='PENDING'))
+    return result
 
 
 class SafeMediaRedirect(urllib.request.HTTPRedirectHandler):
@@ -277,53 +354,93 @@ def vision(blob, mime, context, settings, ledger):
     if not isinstance(text, str) or not text.strip():
         raise RuntimeError('EMPTY_VISION_RESULT')
     usage = result.get('usage', {})
+    if isinstance(usage.get('prompt_tokens'), int) and isinstance(usage.get('completion_tokens'), int):
+        estimated = (usage['prompt_tokens'] * settings['inputCnyPerMillion'] + usage['completion_tokens'] * settings['outputCnyPerMillion']) / 1e6
+        ledger['reservedCny'] = ledger['reservedCny'] - bound + estimated
+        if ledger.get('_path'):
+            save(ledger['_path'], {k: v for k, v in ledger.items() if k != '_path'})
     return dict(text=text, model=result.get('model'), responseId=result.get('id'), usage=usage,
                 status='IMAGE_TRANSCRIPTION_UNVERIFIED', meaning='图中文字提取，不等于底表查数或原因验证')
 
 
-def refresh_document(spec, prior, transport, output, image_budget, vision_settings, ledger):
+def refresh_document(spec, prior, transport, output, image_budget, vision_settings, ledger, check=None):
+    check = check or (lambda: None)
+    check()
     file_id = str(spec['id'])
     meta = transport.drive('get-file-info', dict(file_id=file_id, with_permission=True))
     if str(meta.get('id')) != file_id:
         raise RuntimeError('DOCUMENT_ID_MISMATCH')
     if not needs_read(meta, prior):
-        return {**prior, 'sourceVersion': meta.get('version'), 'sourceModifiedAt': meta.get('mtime'), 'checkedAt': utcnow(), 'change': 'UNCHANGED_VERSION'}
-    params = dict(file_id=file_id, format='markdown', enable_upload_medias=True)
+        return {**prior, 'eventRefs': list(set(prior.get('eventRefs', []) + spec.get('eventRefs', []))), 'sourceVersion': meta.get('version'), 'sourceModifiedAt': meta.get('mtime'), 'checkedAt': utcnow(), 'change': 'UNCHANGED_VERSION'}
+    native_otl = str(meta.get('name', spec.get('title', ''))).endswith('.otl') and hasattr(transport, 'otl')
+    params = dict(file_id=file_id, format='markdown', enable_upload_medias=not native_otl)
     pending_path = output / 'pending' / (file_id + '.json')
     pending = load(pending_path, {})
-    if pending.get('task_id'):
+    if pending.get('task_id') and pending.get('mediaEnabled', True) == params['enable_upload_medias']:
         params['task_id'] = pending['task_id']
-    body = transport.drive('read-file', params)
+    check()
+    try:
+        body = transport.drive('read-file', params)
+    except RuntimeError as error:
+        if 'task_id' not in params or str(error) != 'PROVIDER_400100':
+            raise
+        # A consumed/expired export handle is not an authorization failure.
+        pending_path.unlink(missing_ok=True)
+        params.pop('task_id')
+        body = transport.drive('read-file', params)
     if body.get('status') == 'pending' and body.get('task_id'):
-        save(pending_path, dict(task_id=body['task_id'], file_id=file_id))
+        save(pending_path, dict(task_id=body['task_id'], file_id=file_id, mediaEnabled=params['enable_upload_medias']))
         time.sleep(15)
+        check()
         body = transport.drive('read-file', {**params, 'task_id': body['task_id']})
     text = body.get('content')
+    check()
     if not isinstance(text, str) or not text.strip():
         raise RuntimeError('BODY_NOT_READY')
+    pending_path.unlink(missing_ok=True)
     content_hash = semantic_hash(text)
-    folder = output / 'documents' / file_id / content_hash[:16]
+    folder = output / 'documents' / file_id / digest(str(meta.get('version')) + ':' + content_hash)[:16]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     (folder / 'body.md').write_text(text)
     os.chmod(folder / 'body.md', 0o600)
     images = image_refs(text)
+    # OTL resource IDs permit fresh per-image download links; do not depend on a
+    # bulk export's short-lived URLs surviving a very large weekly report.
+    if native_otl:
+        check()
+        native = transport.otl('block-query', dict(file_id=file_id, params=dict(blockIds=['doc'])))
+        save(folder / 'native-blocks.json', native)
+        images = otl_images(native)
     old_images = {r.get('hash'): r for r in (prior or {}).get('images', []) if r.get('hash')}
     unchanged_version = (prior or {}).get('sourceVersion') == meta.get('version') and meta.get('version') is not None
     local_remaining = image_budget.get('perDocument', 4)
     for ref in images:
+        check()
         if ref['state'] != 'PENDING':
             continue
-        previous_image = next((r for r in (prior or {}).get('images', []) if r.get('index') == ref['index'] and r.get('state') == 'READ'), None)
+        previous_image = next((r for r in (prior or {}).get('images', []) if r.get('index') == ref['index'] and r.get('hash') and r.get('path')), None)
         if unchanged_version and previous_image and Path(previous_image.get('path', '')).is_file():
-            ref.update({k: previous_image[k] for k in ('hash', 'path', 'mime', 'state', 'extraction') if k in previous_image})
-            continue
+            blob = Path(previous_image['path']).read_bytes()
+            if digest(blob) == previous_image['hash']:
+                ref.update({k: previous_image[k] for k in ('hash', 'path', 'mime', 'state', 'extraction') if k in previous_image})
+                if not ref.get('extraction'):
+                    check()
+                    extraction = vision(blob, ref['mime'], ref['context'], vision_settings, ledger)
+                    if extraction:
+                        ref.update(extraction=extraction, state='READ')
+                continue
         if image_budget['remaining'] <= 0 or local_remaining <= 0:
             ref['state'] = 'PENDING_LIMIT'
             continue
         image_budget['remaining'] -= 1
         local_remaining -= 1
         try:
+            if ref.get('sourceKey'):
+                check()
+                resource = transport.drive('download-attachment', dict(file_id=file_id, attachment_id=ref['sourceKey']))
+                ref['url'] = resource.get('download_url') or ''
             blob, mime = download_image(ref['url'])
+            check()
             h = digest(blob)
             image_path = folder / (h + ('.png' if mime == 'image/png' else '.webp' if mime == 'image/webp' else '.jpg'))
             image_path.write_bytes(blob)
@@ -339,7 +456,7 @@ def refresh_document(spec, prior, transport, output, image_budget, vision_settin
         ref.pop('url', None)
     complete = all(r['state'] == 'READ' for r in images)
     return dict(id=file_id, title=meta.get('name') or spec.get('title', ''), kind=spec.get('kind', 'document'),
-        sourceVersion=meta.get('version'), sourceModifiedAt=meta.get('mtime'), contentHash=content_hash,
+        sourceVersion=meta.get('version'), sourceModifiedAt=meta.get('mtime'), contentHash=content_hash, bodyRawHash=digest(text),
         bodyPath=str(folder / 'body.md'), checkedAt=utcnow(), readAt=utcnow(), mediaChecked=complete,
         imageCount=len(images), images=images, warnings=body.get('warnings', []),
         change='SAME_BODY_HASH' if content_hash == (prior or {}).get('contentHash') else 'BODY_CHANGED',
@@ -391,6 +508,14 @@ def _refresh(config, output, transport):
             save(output / 'running.json', result)
         unique = {f"{e['calendarId']}:{e['eventId']}:{e['start']}": e for e in result['events']}
         result['events'] = list(unique.values())
+        pending = {c['eventId'] for c in prior.get('meetingChecks', []) if c.get('state') not in ('CANCELED', 'VERIFIED_RECORD')}
+        current_ids = {e['eventId'] for e in result['events']}
+        for old_event in prior.get('events', []):
+            if old_event['eventId'] in pending and old_event['eventId'] not in current_ids:
+                refreshed = dict(old_event)
+                if refreshed['state'] == 'NOT_DUE' and timestamp(refreshed.get('end')) and dt.datetime.fromisoformat(refreshed['end'].replace('Z', '+00:00')) <= now:
+                    refreshed['state'] = 'RECORD_CHECK_DUE'
+                result['events'].append(refreshed)
         result['candidates'] = attendee_candidates(result['events'], config['ownerId'])
         resolve_candidates(result['candidates'], transport, config.get('maxPeerResolutions', 8))
         save(output / 'running.json', result)
@@ -398,20 +523,40 @@ def _refresh(config, output, transport):
         result['coverage']['calendar'] = False
         result['errors'].append(dict(stage='calendar', code=str(error) if isinstance(error, RuntimeError) else type(error).__name__))
 
+    # Keep unresolved record work even when this round's calendar connection fails.
+    pending_ids = {c['eventId'] for c in prior.get('meetingChecks', []) if c.get('state') not in ('CANCELED', 'VERIFIED_RECORD')}
+    current_ids = {e['eventId'] for e in result['events']}
+    for event in prior.get('events', []):
+        if event['eventId'] in pending_ids and event['eventId'] not in current_ids:
+            carried = dict(event)
+            if timestamp(carried.get('end')) and dt.datetime.fromisoformat(carried['end'].replace('Z', '+00:00')) <= now and carried['state'] == 'NOT_DUE':
+                carried['state'] = 'RECORD_CHECK_DUE'
+            result['events'].append(carried)
+
     specs = {str(s['id']): s for s in config.get('documents', []) if s.get('allowed') is True}
-    for event in result['events']:
+    checked_records = 0
+    old_checks = {c['eventId']: c for c in prior.get('meetingChecks', [])}
+    for event in sorted(result['events'], key=lambda e: old_checks.get(e['eventId'], {}).get('lastCheckedAt', '')):
         check = dict(eventId=event['eventId'], state=event['state'], candidates=[], complete=True)
         if event['state'] == 'RECORD_CHECK_DUE':
+            for file_id in event['attachmentIds']:
+                if file_id in specs:
+                    specs[file_id].setdefault('eventRefs', []).append(event['eventId'])
+            if checked_records >= config.get('maxMeetingChecks', 10):
+                check.update(state='PENDING_LIMIT', complete=False)
+                result['meetingChecks'].append(check)
+                continue
+            checked_records += 1
+            check['lastCheckedAt'] = utcnow()
             try:
+                if not event['title'].strip():
+                    raise RuntimeError('MEETING_TITLE_UNAVAILABLE')
                 # Exact meeting title only. A filename match is a lead, not a verified event link.
                 found = transport.drive('search-files', dict(keyword=event['title'], type='file_name', page_size=20, with_permission=True))
                 check.update(state='CANDIDATES_REQUIRE_EVENT_MATCH' if found.get('items') else 'NOT_FOUND_IN_SEARCH',
                     candidates=[dict(id=str((r.get('file') or r).get('id')), title=(r.get('file') or r).get('name')) for r in found.get('items', [])],
                     complete=not bool(found.get('next_page_token') or found.get('has_more')))
                 # Only explicit event attachment/document mappings may be automatically bound.
-                for file_id in event['attachmentIds']:
-                    if file_id in specs:
-                        specs[file_id].setdefault('eventRefs', []).append(event['eventId'])
             except (RuntimeError, OSError, ValueError) as error:
                 check.update(state='CHECK_FAILED', complete=False, error=type(error).__name__)
         result['meetingChecks'].append(check)
@@ -421,14 +566,10 @@ def _refresh(config, output, transport):
         old.setdefault(str(d['id']), d)
     image_budget = dict(remaining=config.get('maxImages', 12), perDocument=config.get('maxImagesPerDocument', 4))
     for file_id, spec in specs.items():
-        if config.get('documentPolicyPath'):
-            current = load(config['documentPolicyPath'], {}).get('documents', [])
-            if not any(str(d.get('documentId')) == file_id and d.get('status') == 'allowed' for d in current):
-                result['errors'].append(dict(stage='document', id=file_id, code='POLICY_CHANGED'))
-                continue
         try:
+            assert_document_allowed(config, file_id)
             result['documents'].append(refresh_document(spec, old.get(file_id), transport, output,
-                image_budget, config.get('vision', {}), result['modelCost']))
+                image_budget, config.get('vision', {}), result['modelCost'], check=lambda: assert_document_allowed(config, file_id)))
         except (RuntimeError, OSError, ValueError, KeyError) as error:
             result['documents'].append({**old.get(file_id, {}), 'id': file_id, 'title': spec.get('title', ''), 'change': 'CHECK_FAILED', 'checkedAt': utcnow()})
             code = str(error) if isinstance(error, RuntimeError) else type(error).__name__
@@ -437,6 +578,9 @@ def _refresh(config, output, transport):
                 break
         save(output / 'running.json', result)
     result['coverage']['documents'] = len(result['documents']) == len(specs) and not any(d.get('change') == 'CHECK_FAILED' for d in result['documents'])
+    for check in result['meetingChecks']:
+        if any(check['eventId'] in d.get('eventRefs', []) and d.get('kind') == 'meeting' and d.get('bodyPath') and d.get('change') != 'CHECK_FAILED' for d in result['documents']):
+            check.update(state='VERIFIED_RECORD', complete=True)
     result['coverage']['images'] = all(d.get('mediaChecked') for d in result['documents']) and result['coverage']['documents']
     result['finishedAt'] = utcnow()
     result['status'] = 'COMPLETE' if all(result['coverage'].values()) and not result['errors'] else 'PARTIAL'

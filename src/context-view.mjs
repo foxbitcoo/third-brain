@@ -12,7 +12,7 @@ async function read(path){
 export async function readContextSummary(path){
  const data=await read(path);if(!data)return{configured:false};
  return{configured:true,status:data.status,updatedAt:data.finishedAt,coverage:data.coverage,
-  events:data.events.map(e=>({eventId:e.eventId,title:e.title,start:e.start,end:e.end,state:e.state,
+  events:[...data.events].sort((a,b)=>(a.start||'').localeCompare(b.start||'')).map(e=>({eventId:e.eventId,title:e.title,start:e.start,end:e.end,state:e.state,
    attendees:e.attendees.map(a=>({name:a.name,responseStatus:a.response_status}))})),
   candidates:data.candidates.map(c=>({name:c.name,listening:false,status:'candidate',identityVerified:c.chatResolution==='VERIFIED_PEER_ID'})),
   documents:data.documents.map(d=>({id:d.id,title:d.title,version:d.sourceVersion,change:d.change,checkedAt:d.checkedAt,

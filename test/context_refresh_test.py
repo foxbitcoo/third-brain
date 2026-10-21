@@ -48,6 +48,44 @@ class ContextRefreshTests(unittest.TestCase):
         self.assertFalse(m.needs_read(dict(version=1, mtime=10), old))
         self.assertTrue(m.needs_read(dict(version=2, mtime=10), old))
         self.assertTrue(m.needs_read(dict(version=1, mtime=10), {**old, 'mediaChecked': False}))
+        self.assertTrue(m.needs_read(dict(mtime=10), old))
+
+    def test_im_rechecks_exclusion_before_accepting_page(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'attention.json'
+            source=dict(id='source',status='active',manualOverride=True)
+            m.save(path,dict(sources=[source]))
+            class Client:
+                def get(self, *_):
+                    m.save(path,dict(sources=[{**source,'status':'excluded'}]))
+                    return dict(data=dict(items=[{'id':'message'}],next_page_token='next'))
+            with self.assertRaisesRegex(RuntimeError,'SOURCE_POLICY_CHANGED'):
+                m.refresh_im(dict(attentionPath=str(path),imSources=[dict(sourceId='source',chatId='chat',title='Example',start='2026-01-01T00:00:00Z')]),{},Client())
+
+    def test_im_resumes_partial_cursor_after_ingestion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'attention.json';m.save(path,dict(sources=[dict(id='source',status='active',manualOverride=True)]))
+            calls=[]
+            class Client:
+                def get(self, path, params):
+                    calls.append(params)
+                    return dict(data=dict(items=[],has_more=False))
+            prior=dict(integrationStatus='INGESTED',im=dict(receipts=[dict(sourceId='source',complete=False,start='2026-01-01T00:00:00Z',through='2026-01-02T00:00:00Z',nextPageToken='continuation')]))
+            result=m.refresh_im(dict(attentionPath=str(path),imSources=[dict(sourceId='source',chatId='chat',title='Example',start='2025-12-01T00:00:00Z')]),prior,Client())
+            self.assertEqual(calls[0]['page_token'],'continuation')
+            self.assertTrue(result['complete'])
+
+    def test_cached_unread_images_allow_downloading_later_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);blob=b'cached';image=root/'cached.png';image.write_bytes(blob)
+            old=dict(sourceVersion=1,sourceModifiedAt=10,contentHash='previous',mediaChecked=False,images=[dict(index=i,hash=m.digest(blob),path=str(image),mime='image/png',state='DOWNLOADED_PENDING_READING') for i in range(2)])
+            class Client:
+                def drive(self, action, params):
+                    return dict(id='example',version=1,mtime=10) if action=='get-file-info' else dict(content='![a](https://example/a)\n![b](https://example/b)\n![c](https://example/c)')
+            with patch.object(m,'download_image',return_value=(b'new-image','image/png')) as download:
+                row=m.refresh_document(dict(id='example'),old,Client(),root,dict(remaining=1),{},dict(calls=0,reservedCny=0))
+            self.assertEqual(download.call_count,1)
+            self.assertEqual(sum(bool(i.get('path')) for i in row['images']),3)
 
     def test_rotating_media_url_does_not_change_text_identity(self):
         self.assertEqual(m.semantic_hash('hello ![chart](https://media.example/a?sig=1)'),
@@ -56,6 +94,23 @@ class ContextRefreshTests(unittest.TestCase):
 
     def test_missing_image_url_is_an_explicit_gap(self):
         self.assertEqual(m.image_refs('# Report\n![image]()')[0]['state'], 'MISSING_URL')
+
+    def test_native_otl_images_keep_resource_identity_and_heading(self):
+        value=dict(detail=dict(result=dict(blocks=[dict(content=[
+            dict(type='heading',content=[dict(type='text',content='2026-01-08')]),
+            dict(id='block-only',type='picture',attrs=dict(sourceKey='resource-not-block-id'))])])))
+        row=m.otl_images(value)[0]
+        self.assertEqual(row['sourceKey'],'resource-not-block-id')
+        self.assertEqual(row['blockId'],'block-only')
+        self.assertEqual(row['heading'],'2026-01-08')
+
+    def test_legacy_report_parent_ban_blocks_before_network(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);policy=root/'docs.json';attention=root/'attention.json'
+            m.save(policy,dict(documents=[dict(documentId='report',status='allowed',requiresParentSourceId='parent')]))
+            m.save(attention,dict(sources=[dict(id='parent',status='excluded',manualOverride=True)]))
+            with self.assertRaisesRegex(RuntimeError,'DOCUMENT_POLICY_CHANGED'):
+                m.assert_document_allowed(dict(documentPolicyPath=str(policy),attentionPath=str(attention)),'report')
 
     def test_failed_provider_and_repeated_cursor_are_not_success(self):
         with self.assertRaisesRegex(RuntimeError, 'PROVIDER_403'):
