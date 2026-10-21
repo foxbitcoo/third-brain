@@ -4,7 +4,7 @@ import{createHash}from'node:crypto';
 async function read(path){
  if(!path)return null;
  const file=await realpath(path),size=(await stat(file)).size;
- if(size>5*1024*1024)throw Error('Context receipt exceeds local limit');
+ if(size>32*1024*1024)throw Error('Context receipt exceeds local limit');
  const data=JSON.parse(await readFile(file,'utf8'));
  if(data.schema!=='context-refresh/v1')throw Error('Invalid context receipt');
  return data;
