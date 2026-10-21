@@ -5,3 +5,5 @@ node_modules/
 .runtime/
 *.log
 .DS_Store
+__pycache__/
+*.pyc

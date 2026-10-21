@@ -1,6 +1,7 @@
 import { buildWpsAuthorizationUrl, exchangeWpsAuthorizationCode } from "./wps-oauth.mjs";
 import { createWpsMessageClient } from "./wps-message-client.mjs";
 import { createPublicCandidateWorkbench } from "./public-workbench.mjs";
+import {readContextSummary,readContextImage}from'./context-view.mjs';
 
 export function createLocalTrialRuntime({
   config,
@@ -9,6 +10,7 @@ export function createLocalTrialRuntime({
   wpsClientFactory = (options) => createWpsMessageClient(options),
   inference,
   now = () => new Date(),
+  contextPath,
 }) {
   let authorizationState;
   let selectableChats = new Map();
@@ -34,6 +36,8 @@ export function createLocalTrialRuntime({
   }
 
   return Object.freeze({
+    async readContextSources(){return readContextSummary(contextPath);},
+    async readContextImage(document,hash){return readContextImage(contextPath,document,hash);},
     async status() {
       const credential = await store.read("credentials");
       const workspace = await store.read("workspace");

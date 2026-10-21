@@ -25,6 +25,7 @@ if (!config.ready) {
     config,
     store,
     inference: createOpenAiCompatibleAnalyzer(config.model),
+    contextPath: process.env.THIRD_BRAIN_CONTEXT_PATH,
   });
   server = createLocalHttpServer({ runtime, indexFile: new URL("../public/index.html", import.meta.url) });
 }
