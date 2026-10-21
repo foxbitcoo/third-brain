@@ -26,6 +26,16 @@ class ContextRefreshTests(unittest.TestCase):
         events[0]['state'] = 'CANCELED'
         self.assertEqual(m.attendee_candidates(events, 'owner'), [])
 
+    def test_own_small_invites_get_identity_resolution_priority(self):
+        group = dict(calendarId='c', eventId='group', start='s', state='NOT_DUE', organizerId='other', attendees=[dict(user_id='group-peer')])
+        own = dict(calendarId='c', eventId='own', start='s', state='NOT_DUE', organizerId='owner', attendees=[dict(user_id='own-peer')])
+        self.assertEqual(m.attendee_candidates([group, own], 'owner')[0]['userId'], 'own-peer')
+
+    def test_recurring_master_outside_previous_window_is_not_carried(self):
+        scope = dict(scope=dict(start='2026-01-08T00:00:00Z', end='2026-01-15T00:00:00Z'))
+        self.assertFalse(m.prior_event_in_scope(dict(start='2025-10-01T00:00:00Z',end='2025-10-01T01:00:00Z'),scope))
+        self.assertTrue(m.prior_event_in_scope(dict(start='2026-01-09T00:00:00Z',end='2026-01-09T01:00:00Z'),scope))
+
     def test_no_listening_from_invite(self):
         events = [dict(calendarId='c', eventId='e', start='s', state='NOT_DUE', attendees=[dict(user_id='peer')])]
         row = m.attendee_candidates(events, 'owner')[0]

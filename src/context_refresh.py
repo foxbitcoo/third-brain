@@ -92,7 +92,7 @@ def normalize_event(raw, attendees, calendar_id, now):
 
 def attendee_candidates(events, owner_id):
     result = {}
-    for event in events:
+    for event in sorted(events, key=lambda e: (e.get('organizerId') != str(owner_id), len(e.get('attendees', [])), e.get('start') or '')):
         if event['state'] in ('CANCELED', 'TIME_UNAVAILABLE'):
             continue
         own = next((a for a in event['attendees'] if str(a.get('user_id')) == str(owner_id)), None)
@@ -500,8 +500,18 @@ def _refresh(config, output, transport):
                 continue
             event_id = str(raw['id'])
             detail = unwrap(transport.get(f"/v7/calendars/{config['calendarId']}/events/{event_id}", {}))
+            actual_start = timestamp(detail.get('start_time'))
+            actual_end = timestamp(detail.get('end_time'))
+            lower, upper = (dt.datetime.fromisoformat(config[k].replace('Z', '+00:00')) for k in ('start', 'end'))
+            if actual_start and actual_end and (dt.datetime.fromisoformat(actual_start.replace('Z', '+00:00')) >= upper or dt.datetime.fromisoformat(actual_end.replace('Z', '+00:00')) <= lower):
+                # Some list endpoints also return recurring masters. An old
+                # master date must never stand in for this week's occurrence.
+                result.setdefault('calendarGaps', []).append(dict(eventId=event_id, reason='OUTSIDE_WINDOW_OR_UNEXPANDED_RECURRENCE'))
+                result['coverage']['calendar'] = False
+                continue
             attendees, attendee_complete = pages(transport.get, f"/v7/calendars/{config['calendarId']}/events/{event_id}/attendees", dict(page_size=100))
             event = normalize_event(detail, attendees, config['calendarId'], now)
+            event['organizedByMe'] = event['organizerId'] == str(config['ownerId'])
             if not attendee_complete:
                 result['coverage']['calendar'] = False
             result['events'].append(event)
@@ -512,6 +522,8 @@ def _refresh(config, output, transport):
         current_ids = {e['eventId'] for e in result['events']}
         for old_event in prior.get('events', []):
             if old_event['eventId'] in pending and old_event['eventId'] not in current_ids:
+                if not prior_event_in_scope(old_event, prior):
+                    continue
                 refreshed = dict(old_event)
                 if refreshed['state'] == 'NOT_DUE' and timestamp(refreshed.get('end')) and dt.datetime.fromisoformat(refreshed['end'].replace('Z', '+00:00')) <= now:
                     refreshed['state'] = 'RECORD_CHECK_DUE'
@@ -528,6 +540,8 @@ def _refresh(config, output, transport):
     current_ids = {e['eventId'] for e in result['events']}
     for event in prior.get('events', []):
         if event['eventId'] in pending_ids and event['eventId'] not in current_ids:
+            if not prior_event_in_scope(event, prior):
+                continue
             carried = dict(event)
             if timestamp(carried.get('end')) and dt.datetime.fromisoformat(carried['end'].replace('Z', '+00:00')) <= now and carried['state'] == 'NOT_DUE':
                 carried['state'] = 'RECORD_CHECK_DUE'
@@ -589,3 +603,11 @@ def _refresh(config, output, transport):
     result['modelCost'].pop('_path', None)
     save(output / 'context.json', result)
     return result
+
+
+def prior_event_in_scope(event, prior):
+    scope = prior.get('scope') or {}
+    if not scope.get('start') or not scope.get('end') or not event.get('start') or not event.get('end'):
+        return True
+    start, end, lower, upper = (dt.datetime.fromisoformat(v.replace('Z', '+00:00')) for v in (event['start'], event['end'], scope['start'], scope['end']))
+    return start < upper and end > lower
