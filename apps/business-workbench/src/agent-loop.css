@@ -1,0 +1,52 @@
+.agent-loop-diagram { min-width: 0; max-width: 100%; }
+.agent-loop-scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; border-radius: 6px; }
+.agent-loop-scroll:focus-visible { outline: 2px solid #3370ff; outline-offset: -2px; }
+.agent-loop-canvas { position: relative; width: 100%; min-width: 860px; aspect-ratio: 1100 / 1050; }
+.agent-loop-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.agent-loop-route { fill: none; stroke-width: 1.8; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.agent-loop-route-neutral { stroke: #8792a4; }
+.agent-loop-route-primary { stroke: #3370ff; }
+.agent-loop-route-human { stroke: #c18630; }
+.agent-loop-route-return { stroke: #a4aebb; stroke-dasharray: 5 5; stroke-width: 1.5; }
+.agent-loop-arrow-neutral { fill: #8792a4; }
+.agent-loop-arrow-primary { fill: #3370ff; }
+.agent-loop-arrow-human { fill: #c18630; }
+.agent-loop-arrow-return { fill: #a4aebb; }
+.agent-loop-label { font-family: inherit; font-size: 16px; font-weight: 500; }
+.agent-loop-label-primary { fill: #3370ff; }
+.agent-loop-label-human { fill: #bd7c25; }
+.agent-loop-label-return { fill: #7a8494; }
+.agent-loop-label-secondary { font-size: 14px; font-weight: 400; }
+.agent-loop-diamond { fill: #fff; stroke: #c7cfdb; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.agent-loop-diamond-selected { fill: #f1f6ff; stroke: #3370ff; stroke-width: 2; }
+.agent-loop-start { position: absolute; z-index: 2; left: 3.5%; top: 4.6%; background: #eef2f8; border-radius: 20px; padding: 6px 16px; color: #596579; font-size: 14px; line-height: 1.4; font-weight: 500; pointer-events: none; }
+.agent-loop-node { position: absolute; display: flex; flex-direction: column; justify-content: space-between; padding: 19px 15px 11px; border: 1px solid #ccd3df; border-radius: 7px; background: #fff; color: #1f2329; font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, background-color .15s, box-shadow .15s; }
+.agent-loop-node:hover { border-color: #8dadff; background: #f8faff; }
+.agent-loop-node:focus-visible { outline: 3px solid #aac3ff; outline-offset: 3px; }
+.agent-loop-node-selected { border: 2px solid #3370ff; padding: 18px 14px 10px; background: #f1f6ff; box-shadow: 0 0 0 2px #3370ff0a; }
+.agent-loop-node-body { display: flex; align-items: flex-start; gap: 11px; min-width: 0; }
+.agent-loop-node-icon { flex-shrink: 0; font-size: 28px; color: #3370ff; }
+.agent-loop-node strong { display: block; font-size: 16px; line-height: 1.5; font-weight: 600; }
+.agent-loop-node-detail { display: block; font-size: 12px; line-height: 1.5; white-space: nowrap; color: #7a8494; text-align: center; }
+.agent-loop-node-link { display: block; border-top: 1px solid #e8ecf2; padding-top: 9px; color: #3370ff; font-size: 13px; text-align: center; line-height: 1.4; }
+.agent-loop-node-decision { border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; justify-content: center; text-align: center; align-items: center; }
+.agent-loop-node-decision:hover, .agent-loop-node-decision.agent-loop-node-selected { padding: 0; background: transparent; border: 0; box-shadow: none; }
+.agent-loop-node-decision strong { font-size: 14px; }
+.agent-loop-decision-detail { margin-top: 7px; color: #7a8494; font-size: 11px; }
+.agent-loop-limits { margin: -19px 24px 22px; color: #737d8d; font-size: 13px; line-height: 1.8; }
+.agent-loop-limits > span { display: block; color: #8f97a4; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .agent-loop-node { transition: none; } }
+/* Fit the approved three-column flow beside the document pane on desktop. */
+.agent-loop-diagram { container-type:inline-size; }
+.agent-loop-canvas { min-width:640px; }
+.agent-loop-node { padding:clamp(8px,1.7cqw,19px) clamp(8px,1.4cqw,15px) clamp(6px,1cqw,11px); }
+.agent-loop-node-selected { padding:clamp(7px,1.6cqw,18px) clamp(7px,1.3cqw,14px) clamp(5px,.9cqw,10px); }
+.agent-loop-node-body { gap:clamp(6px,1cqw,11px); }
+.agent-loop-node-icon { font-size:clamp(18px,2.6cqw,28px); }
+.agent-loop-node strong { font-size:clamp(12px,2cqw,16px); line-height:1.45; }
+.agent-loop-node-detail { font-size:clamp(10px,1.45cqw,12px); line-height:1.4; white-space:normal; }
+.agent-loop-node-link { font-size:clamp(11px,1.6cqw,13px); padding-top:clamp(5px,.85cqw,9px); }
+.agent-loop-node-decision, .agent-loop-node-decision.agent-loop-node-selected { padding:0; }
+.agent-loop-node-decision strong { font-size:clamp(11px,1.7cqw,14px); }
+.agent-loop-decision-detail { font-size:clamp(9px,1.25cqw,11px); margin-top:3px; }
+.agent-loop-start { font-size:clamp(10px,1.5cqw,14px); padding:4px 12px; }

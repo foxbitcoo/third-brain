@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,rm,realpath,mkdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHash} from 'node:crypto';
+import {createDiagnosticMemoryStore} from '../diagnostic-memory.mjs';
+import {startWorkbenchServer} from '../server.mjs';
+
+test('encrypted attention provider revokes historical Memory visibility without a file attention path',async t=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'attention-memory-')));
+ t.after(()=>rm(root,{recursive:true,force:true}));
+ await mkdir(join(root,'checkout'));
+ const content='Use distinct accounts for the numerator.',sha=createHash('sha256').update(content).digest('hex');
+ const body=join(root,'body.txt'),manifest=join(root,'sources.json'),configPath=join(root,'config.json'),memoryDirectory=join(root,'memory');
+ await writeFile(body,content);
+ await writeFile(manifest,JSON.stringify({sources:[{sourceId:'historical-report',kind:'HISTORICAL_REPORT',version:'v1',hash:sha,path:body,requiredSourceIds:['chat-a']}]}));
+ const source={id:'metric',title:'Synthetic metric',version:'v1',definition:'Distinct account ratio',definitionVerified:true,userAuthorized:true,recipes:[{id:'counts',title:'Counts',tool:'execute_raw_sql',complexSqlVerified:true,arguments:{sql:'SELECT 1 AS count'}}]};
+ await writeFile(configPath,JSON.stringify({version:'diagnostic-config-v1',storeDirectory:join(root,'runs'),memoryDirectory,memorySourcesPath:manifest,sources:[source]}));
+ const memory=await createDiagnosticMemoryStore(join(memoryDirectory,'records'));
+ await memory.upsert({kind:'METRIC_DEFINITION',title:'Counts',text:content,keywords:['counts'],status:'SOURCE_VERIFIED',sourceRefs:[{sourceId:'historical-report',version:'v1',hash:sha,locator:'section',knownAt:'2026-01-01T00:00:00Z'}],applicability:{sourceIds:['metric'],sourceVersions:{metric:'v1'}},knownAt:'2026-01-01T00:00:00Z',verification:{method:'source-text-readback'}});
+ await memory.close();
+ let revoked=false;
+ const server=await startWorkbenchServer({port:0,checkoutRoot:join(root,'checkout'),datasetProvider:async()=>({schema_version:'business-qa-v1',dataset_id:'empty',as_of:'2026-01-09T00:00:00Z',cases:[]}),discoveryPath:configPath,diagnosticEnvironment:{},attentionProvider:async()=>({version:1,sources:[{id:'chat-a',kind:'group',tier:'normal',status:revoked?'excluded':'active',manualOverride:true,matchedWorklines:[]}]})});
+ t.after(async()=>{await server.closeDiagnostics();await new Promise(resolve=>server.close(resolve));});
+ const address=`http://127.0.0.1:${server.address().port}`;
+ const get=async()=>{const r=await fetch(address+'/api/discovery-memory');assert.equal(r.status,200);return r.json();};
+ assert.equal((await get()).records.length,1);
+ revoked=true;
+ assert.equal((await get()).records.length,0);
+});

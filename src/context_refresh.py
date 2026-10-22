@@ -280,7 +280,13 @@ def otl_images(value):
             return
         kind, attrs = node.get('type'), node.get('attrs') or {}
         if kind == 'heading':
-            heading = ''.join(c.get('content', '') for c in node.get('content', []) if isinstance(c.get('content'), str))
+            parts = []
+            for child in node.get('content', []):
+                if isinstance(child.get('content'), str):
+                    parts.append(child['content'])
+                elif child.get('type') == 'staticTime' and isinstance((child.get('attrs') or {}).get('time'), (int, float)):
+                    parts.append(dt.datetime.fromtimestamp(child['attrs']['time'] / 1000, dt.timezone(dt.timedelta(hours=8))).date().isoformat())
+            heading = ''.join(parts)
             if re.search(r'20\d{2}[-/]\d{1,2}[-/]\d{1,2}', heading):
                 dated_heading = heading
         if kind == 'text' and isinstance(node.get('content'), str):

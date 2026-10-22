@@ -7,3 +7,6 @@ node_modules/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Rebuilt during installation; never publish local generated bundles.
+apps/business-workbench/dist/
