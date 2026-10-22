@@ -30,10 +30,10 @@ const REQUIRED_FILES = Object.freeze([
   "docs/PREVIEW-LIMITS.md",
 ]);
 
-const TEXT_EXTENSIONS = new Set([".md", ".html", ".css", ".js", ".mjs", ".json", ".example", ".gitignore", ".txt"]);
+const TEXT_EXTENSIONS = new Set([".md", ".html", ".css", ".js", ".mjs", ".jsx", ".json", ".example", ".gitignore", ".txt"]);
 const PYTHON_SOURCES = new Set(['src/context_refresh.py','scripts/refresh-context.py','test/context_refresh_test.py']);
 const MAX_FILE_BYTES = 1_000_000;
-const MAX_TOTAL_BYTES = 5_000_000;
+const MAX_TOTAL_BYTES = 10_000_000;
 const PLACEHOLDER = /^(?:<[^>]+>|(?:your|replace|example|shared|independent|synthetic|test|fake)[_-]|\$\{|\*{3}|\/(?:kso_|gh\(\?:|authorization\[)|\/[^\r\n]+\/[a-z]*;?$)/iu;
 
 const DOC_IMAGE_PATH = /^docs\/(?:assets|product\/assets\/screenshots|architecture\/assets)\/[^/]+\.(?:png|jpe?g)$/iu;

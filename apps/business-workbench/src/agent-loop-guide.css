@@ -1,0 +1,28 @@
+.attention-card.agent-loop-guide{padding:0;overflow:hidden;line-height:1.65}
+.agent-loop-guide .agent-loop-guide-header{padding:24px 26px 20px;align-items:flex-start;border-bottom:1px solid var(--line,#e4e6eb);gap:20px}
+.agent-loop-guide-header h2{display:flex;align-items:center;flex-wrap:wrap;gap:12px;font-size:19px}
+.agent-loop-guide-header p{color:#42474f;font-size:14px;margin:12px 0 0}
+.agent-loop-guide-label{font-size:12px;font-weight:500;color:#646a73;background:#eff2f7;border-radius:5px;padding:4px 10px}
+.agent-loop-guide-layout{display:grid;grid-template-columns:minmax(0,1fr) 288px}
+.agent-loop-guide-diagram{padding:24px 18px 14px;min-width:0}
+.agent-loop-guide-panel{max-height:650px;overflow-y:auto;padding:24px 22px;border-left:1px solid var(--line,#e4e6eb);min-width:0}
+.agent-loop-guide-panel-title{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:26px}
+.agent-loop-guide-panel h3{margin:0;color:#1f2329;font-size:19px;line-height:1.45;font-weight:650}
+.agent-loop-guide-panel-title p{margin:6px 0 0;font-size:13px;color:#8a919d}
+.agent-loop-guide-panel section{margin:0 0 24px}
+.agent-loop-guide-panel h4{display:flex;align-items:center;gap:10px;margin:0 0 12px;color:#242a33;font-size:15px}
+.agent-loop-guide-panel h4 .semi-icon{background:#f3f6fc;border-radius:6px;color:#3370ff;padding:10px;box-sizing:content-box;font-size:20px}
+.agent-loop-guide-panel ol{padding:14px 16px 14px 32px;margin:0;background:#f6f7fa;border-radius:6px;font-size:13px;line-height:1.9;color:#6b7484;overflow-wrap:anywhere}
+.agent-loop-guide-panel li+li{margin-top:6px}
+.agent-loop-guide-boundary{border-top:1px solid var(--line,#e4e6eb);padding-top:18px;color:#7c8493;font-size:12px;display:flex;align-items:flex-start;gap:7px}
+.agent-loop-guide-boundary .semi-icon{margin-top:3px;flex:none}
+.agent-loop-guide-panel .agent-loop-guide-open{padding-left:0;font-size:14px}
+.agent-loop-guide-source{font-size:11px;color:#8a919d;line-height:1.75;margin:10px 0 0;overflow-wrap:anywhere}
+.agent-loop-guide-empty{color:#8a919d;font-size:13px;margin:0;padding:16px 0}
+.agent-loop-document-sheet .semi-sidesheet-inner{max-width:100vw}
+.agent-loop-guide-full{padding:0 8px 24px;color:#4e5969;font-size:14px;line-height:1.9;overflow-wrap:anywhere}
+.agent-loop-guide-full section{margin:28px 0}
+.agent-loop-guide-full h3{font-size:17px;color:#242a33}
+.agent-loop-guide-full [data-current-node=true]{background:#f2f6ff;border-left:3px solid #3370ff;padding:10px 14px;border-radius:0 5px 5px 0}
+@media(min-width:1400px){.agent-loop-guide-layout{grid-template-columns:minmax(0,1fr) 30%}}
+@media(max-width:900px){.agent-loop-guide-layout{grid-template-columns:minmax(0,1fr)}.agent-loop-guide-panel{border-left:0;border-top:1px solid var(--line,#e4e6eb)}.agent-loop-guide-panel-title{margin-bottom:18px}.agent-loop-guide-panel{padding:22px}.agent-loop-guide-diagram{padding:18px 12px}.agent-loop-guide .agent-loop-guide-header{padding:20px}}

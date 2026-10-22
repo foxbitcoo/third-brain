@@ -110,6 +110,7 @@ export function createLocalTrialRuntime({
       }
       const result = await inference.analyze({ messages: workspace.messages });
       const evidenceById = new Map(workspace.messages.map((message) => [message.id, message]));
+      if (!Array.isArray(result.candidates) || result.candidates.some(c => !c.title || !c.reason || !Array.isArray(c.evidenceIds) || !c.evidenceIds.length || c.evidenceIds.some(id => !evidenceById.has(id)))) throw new Error('模型返回了无法核验的引用');
       const candidates = result.candidates.map((candidate) => ({
         title: String(candidate.title || "候选"),
         reason: String(candidate.reason || ""),
@@ -125,7 +126,7 @@ export function createLocalTrialRuntime({
             excerpt: message.text.slice(0, 220),
           })),
       }));
-      const analysis = { summary: result.summary, candidates, generatedAt: now().toISOString(), judgments: [] };
+      const analysis = { model: config.model.model, provider: config.model.provider, summary: result.summary, candidates, generatedAt: now().toISOString(), judgments: [] };
       await store.write("workspace", { ...workspace, analysis });
       return analysis;
     },

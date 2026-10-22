@@ -1,11 +1,11 @@
 {
   "name": "third-brain-local",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "license": "AGPL-3.0",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
     "postinstall": "node scripts/preflight.mjs --informational",
@@ -18,9 +18,16 @@
     "preflight": "node scripts/preflight.mjs",
     "demo": "node scripts/serve-demo.mjs",
     "verify": "node scripts/verify-standalone.mjs",
-    "test:context": "python3 -m unittest discover -s test -p \"*_test.py\""
+    "test:context": "python3 -m unittest discover -s test -p \"*_test.py\"",
+    "build": "npm run build --workspace apps/business-workbench",
+    "prestart": "npm run build",
+    "start:legacy": "node scripts/start-legacy.mjs",
+    "test:workbench": "npm test --workspace apps/business-workbench"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0"
-  }
+  },
+  "workspaces": [
+    "apps/business-workbench"
+  ]
 }
