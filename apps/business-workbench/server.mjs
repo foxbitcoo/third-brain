@@ -1,3 +1,11 @@
+import {renderPeriodicMemoryTest,periodicMemoryRuns} from './periodic-memory-test.mjs';
+import {hash as hashForComparison} from './diagnostic-adapters.mjs';
+import {playbookReferenceMemory,mergeMemoryContext} from './diagnostic-playbook-memory.mjs';
+import {renderLiveEvaluation} from './diagnostic-live-evaluation.mjs';
+import {createTicketMemoryBuilder,loadMemoryBuildInputs} from './ticket-memory-builder.mjs';
+import {ticketSessionMessages} from './memory-session.mjs';
+import {visiblePlaybooks,ticketMemoryTrace} from './memory-playbook.mjs';
+import {memoryImageBytes} from './memory-multimodal.mjs';
 import {projectContextSources,readContextImage} from './context-sources.mjs';
 import { loadAttention, saveChange, readPlan, isTrustedListeningSource } from './source-attention.mjs';
 import { createServer } from 'node:http';
@@ -27,7 +35,7 @@ const MAX_HISTORY_BYTES = MAX_HISTORY_INDEX_BYTES;
 const MAX_DISPLAY_MAPPING_BYTES = 5 * 1024 * 1024;
 const MAX_READING_GUIDE_BYTES = 1024 * 1024;
 const MAX_CONTEXT_BYTES = 32 * 1024 * 1024;
-const FILE_FLAGS = { '--context-sources':'contextSourcesPath', '--historical-media':'historicalMediaPath', '--question-contexts':'questionContextsPath', '--discovery-boards': 'discoveryBoardsPath', '--historical-tickets': 'historicalTicketsPath', '--historical-ticket-scope': 'historicalTicketScopePath', '--discovery': 'discoveryPath', '--document-policy': 'documentPolicyPath', '--history': 'historyPath', '--worklines': 'worklinesPath', '--attention': 'attentionPath', '--data': 'dataPath', '--source-map': 'sourceMapPath', '--display-titles': 'displayTitlesPath', '--reading-guide': 'readingGuidePath' };
+const FILE_FLAGS = { '--memory-periodic-test':'memoryPeriodicTestPath', '--memory-reuse':'memoryReusePath', '--memory-evaluation':'memoryEvaluationPath', '--memory-builder':'memoryBuilderPath', '--memory-playbooks':'memoryPlaybooksPath', '--context-sources':'contextSourcesPath', '--historical-media':'historicalMediaPath', '--question-contexts':'questionContextsPath', '--discovery-boards': 'discoveryBoardsPath', '--historical-tickets': 'historicalTicketsPath', '--historical-ticket-scope': 'historicalTicketScopePath', '--discovery': 'discoveryPath', '--document-policy': 'documentPolicyPath', '--history': 'historyPath', '--worklines': 'worklinesPath', '--attention': 'attentionPath', '--data': 'dataPath', '--source-map': 'sourceMapPath', '--display-titles': 'displayTitlesPath', '--reading-guide': 'readingGuidePath' };
 const ERRORS = {
   DISCOVERY_BOARDS_UNAVAILABLE: [503, '看板原图暂时无法读取。'],
   DISCOVERY_BOARDS_TOO_LARGE: [413, '看板图片清单超过读取上限。'],
@@ -300,7 +308,7 @@ function checkRequest(request, port) {
   if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(host)) throw new WorkbenchError('REQUEST_NOT_ALLOWED');
   if (request.headers.origin !== undefined && request.headers.origin !== `http://${host}`) throw new WorkbenchError('REQUEST_NOT_ALLOWED');
   if (request.headers['sec-fetch-site'] === 'cross-site') throw new WorkbenchError('REQUEST_NOT_ALLOWED');
-  if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && ['/api/attention', '/api/ask', '/api/discovery', '/api/discovery-action', '/api/discovery-memory', '/api/setup/save', '/oauth/wps/start', '/api/import', '/api/analyze', '/api/judgments'].includes(request.url) && request.headers.origin === `http://${host}` && request.headers['content-type'] === 'application/json')) throw new WorkbenchError('METHOD_NOT_ALLOWED');
+  if (!['GET', 'HEAD'].includes(request.method) && !(request.method === 'POST' && ['/api/attention', '/api/ask', '/api/discovery', '/api/discovery-action', '/api/discovery-memory', '/api/ticket-memory-build', '/api/setup/save', '/oauth/wps/start', '/api/import', '/api/analyze', '/api/judgments'].includes(request.url) && request.headers.origin === `http://${host}` && request.headers['content-type'] === 'application/json')) throw new WorkbenchError('METHOD_NOT_ALLOWED');
   const rawPath = request.url?.split('?')[0];
   if (!rawPath?.startsWith('/') || rawPath.startsWith('//')) throw new WorkbenchError('INVALID_REQUEST');
   let path;
@@ -343,6 +351,65 @@ async function currentAttention(options) {
 export function createWorkbenchServer(options = {}) {
   let askActive = false;
   let diagnosticService;
+  let memoryBuilder;
+  async function builder(){
+    if(options.memoryBuilderService)return options.memoryBuilderService;
+    if(!options.memoryBuilderPath)throw new WorkbenchError('DISCOVERY_UNAVAILABLE');
+    if(!memoryBuilder){const configPath=await externalFile(options.memoryBuilderPath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE');const loaded=await loadMemoryBuildInputs(configPath,options.checkoutRoot||CHECKOUT_ROOT);for(const [key,target]of Object.entries({ticketsPath:'historicalTicketsPath',scopePath:'historicalTicketScopePath',attentionPath:'attentionPath',messagesPath:'questionContextsPath',outputPath:'memoryPlaybooksPath'}))if(loaded.config[key]!==options[target])throw new WorkbenchError('INVALID_REQUEST');memoryBuilder=createTicketMemoryBuilder({configPath,checkoutRoot:options.checkoutRoot||CHECKOUT_ROOT,env:options.diagnosticEnvironment});}return memoryBuilder;
+  }
+  async function playbooks() {
+    if(!options.memoryPlaybooksPath||!options.historicalTicketsPath||!options.historicalTicketScopePath)return {records:[],ticketIds:new Set(),builds:{}};
+    const bundle=await readLocalJson(await externalFile(options.memoryPlaybooksPath,options.checkoutRoot,'HISTORICAL_TICKETS_UNAVAILABLE'),16*1024*1024,'HISTORICAL_TICKETS');
+    if(bundle.schemaVersion!=='memory-playbooks-v1'||!Array.isArray(bundle.records))throw new WorkbenchError('HISTORICAL_TICKETS_INVALID');
+    const history=await readLocalJson(await externalFile(options.historicalTicketsPath,options.checkoutRoot,'HISTORICAL_TICKETS_UNAVAILABLE'),12*1024*1024,'HISTORICAL_TICKETS');
+    const scope=await readLocalJson(await externalFile(options.historicalTicketScopePath,options.checkoutRoot,'HISTORICAL_TICKETS_UNAVAILABLE'),64*1024,'HISTORICAL_TICKETS');
+    const scopeIds=historicalScopeIds(scope,{startAt:history.window.startAt??history.window.start,endAt:history.window.endAt??history.window.end});
+    const attention=await currentAttention(options);
+    const allowedSourceIds=new Set(attention.sources.filter(isTrustedListeningSource).map(s=>s.id));
+    const excludedSourceIds=new Set(attention.sources.filter(s=>s.status==='excluded').map(s=>s.id));
+    const sourceRefs=new Map(scope.sourceIds.map(id=>[id,scope.sourceRefs[id]]));
+    for(const source of attention.sources)if(sourceRefs.has(source.id)&&sourceRefs.get(source.id)!==String(source.chatId||''))excludedSourceIds.add(source.id);
+    const ticketIds=new Set(projectHistoricalTickets(history,{allowedSourceIds,excludedSourceIds,scopeIds,sourceRefs,blockedLocatorHashes:new Set(blockedLocatorConfiguration())}).tickets.map(t=>t.id));
+    const graph=options.questionContextsPath?(await readLocalJson(await externalFile(options.questionContextsPath,options.checkoutRoot,'HISTORICAL_TICKETS_UNAVAILABLE'),16*1024*1024,'HISTORICAL_TICKETS')).messages:null;
+    const bindings=new Map();
+    for(const ticket of history.tickets.filter(t=>ticketIds.has(t.id))){
+      const messages=graph||ticket.events.map(e=>({...e,sourceRef:sourceRefs.get(e.sourceId),pushedAt:e.at??e.occurredAt}));
+      const session=ticketSessionMessages(ticket,messages,{allowedSourceIds:new Set([...allowedSourceIds,...scopeIds]),excludedSourceIds,sourceRefs,blockedLocatorHashes:new Set(blockedLocatorConfiguration())},scope);
+      bindings.set(ticket.id,session.messages);
+    }
+    const admitted=visiblePlaybooks({...bundle,records:[...bundle.records,...(bundle.historyRecords||[])]},{allowedSourceIds,excludedSourceIds,scopeIds,scopeWindow:scope}).filter(r=>ticketIds.has(r.sourceTicketId)&&r.sourceRefs.every(ref=>sourceRefs.has(ref.sourceId)&&(!ref.sourceRef||ref.sourceRef===sourceRefs.get(ref.sourceId))&&bindings.get(r.sourceTicketId)?.some(e=>e.sourceId===ref.sourceId&&String(e.messageId)===String(ref.messageId)&&Date.parse(e.pushedAt)===Date.parse(ref.at))));
+    const activeIds=new Set(bundle.records.map(r=>r.id));
+    return {records:admitted.filter(r=>activeIds.has(r.id)),historyRecords:admitted.filter(r=>!activeIds.has(r.id)),ticketIds,builds:bundle.builds||{},defaultModel:bundle.defaultModel||null};
+  }
+  function publicPlaybook(record){
+    return {...record,attachments:(record.attachments||[]).map(({path,...image})=>({...image,imagePath:'/api/memory-playbook-image?memory='+encodeURIComponent(record.id)+'&image='+encodeURIComponent(image.id)}))};
+  }
+  async function periodicReceipt() {
+    if(!options.memoryPeriodicTestPath)return null;
+    const receipt=await readLocalJson(await externalFile(options.memoryPeriodicTestPath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE'),1024*1024,'DISCOVERY');
+    const admitted=await playbooks(),record=[...admitted.records,...(admitted.historyRecords||[])].find(r=>r.id===receipt.memoryId&&hashForComparison(r)===receipt.memoryHash);
+    if(receipt.version!=='periodic-memory-test/v1'||receipt.mode!=='RETROSPECTIVE_METHOD_TRANSFER_NO_TOOL_DATA'||!admitted.ticketIds.has(receipt.sourceTicketId)||!admitted.ticketIds.has(receipt.targetTicketId)||!record||hashForComparison(record)!==receipt.memoryHash)return null;
+    return receipt;
+  }
+  async function comparisonReceipt() {
+    if(!options.memoryEvaluationPath)return null;
+    const receipt=await readLocalJson(await externalFile(options.memoryEvaluationPath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE'),32*1024*1024,'DISCOVERY');
+    if(receipt.mode!=='REAL_READONLY_TOOL_LOOP'||!Array.isArray(receipt.arms)||!Array.isArray(receipt.results)||receipt.arms.length>12)throw new WorkbenchError('NOT_FOUND');
+    const admitted=await playbooks(),allRecords=[...admitted.records,...(admitted.historyRecords||[])],visibleIds=new Set(allRecords.map(r=>r.id));
+    const config=await readLocalJson(await externalFile(options.discoveryPath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE'),1024*1024,'DISCOVERY');
+    const policy=options.memoryReusePath?await readLocalJson(await externalFile(options.memoryReusePath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE'),256*1024,'DISCOVERY'):null;
+    for(const arm of receipt.arms){
+      if(!config.sources.some(s=>s.id===arm.case?.sourceId&&s.userAuthorized===true)||!admitted.ticketIds.has(arm.case?.parentTicketId)||arm.case?.businessContext?.length)throw new WorkbenchError('NOT_FOUND');
+    }
+    for(const row of receipt.results){
+      const run=row.run;if(!run)continue;
+      const source=config.sources.find(s=>s.id===run.sourceId),arm=receipt.arms.find(a=>a.id===row.armId);
+      if(!source?.userAuthorized||hashForComparison(source)!==run.sourceHash||!arm||arm.parityHash!==run.evaluation?.parityHash||!admitted.ticketIds.has(run.evaluation?.parentTicketId)||run.businessContext?.length)throw new WorkbenchError('NOT_FOUND');
+      const current=playbookReferenceMemory(allRecords,policy,source).records;
+      if(run.memorySnapshot?.selected?.some(r=>!visibleIds.has(r.id)||!current.some(c=>c.id===r.id&&c.hash===r.hash)))throw new WorkbenchError('NOT_FOUND');
+    }
+    return receipt;
+  }
   async function boardInputs() {
     if(!options.discoveryBoardsPath)throw new WorkbenchError('DISCOVERY_BOARDS_UNAVAILABLE');
     const file=await externalFile(options.discoveryBoardsPath,options.checkoutRoot,'DISCOVERY_BOARDS_UNAVAILABLE');
@@ -364,6 +431,13 @@ export function createWorkbenchServer(options = {}) {
     if(!diagnosticService) diagnosticService=(async()=>createDiagnosticService({
       env:options.diagnosticEnvironment,
       configPath:await externalFile(options.discoveryPath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE'),checkoutRoot:options.checkoutRoot||CHECKOUT_ROOT,
+      comparisonRunsFor:async()=> (await comparisonReceipt())?.results.filter(r=>r.run).map(r=>({...r.run,evaluationReadOnly:true}))||[],
+      referenceMemoryFor:async source=>{
+        if(!options.memoryReusePath)return {records:[],context:{}};
+        const policy=await readLocalJson(await externalFile(options.memoryReusePath,options.checkoutRoot,'DISCOVERY_UNAVAILABLE'),256*1024,'DISCOVERY');
+        const admitted=await playbooks(),active=playbookReferenceMemory(admitted.records,policy,source),history=playbookReferenceMemory(admitted.historyRecords||[],policy,source);
+        return {...active,context:mergeMemoryContext(active.context,history.context)};
+      },
       resolveQuestionContext:async input=>{
         if(!input.boardId&&!input.snapshotId&&!input.historyTicketId)return null;
         const {store,policy}=await boardInputs();
@@ -548,10 +622,43 @@ export function createWorkbenchServer(options = {}) {
         } else if(mediaRequest)throw new WorkbenchError('NOT_FOUND');
         sendJson(request, response, 200, result);
       }
+      else if(path==='/api/ticket-memory-build'){
+        if(request.method!=='POST')throw new WorkbenchError('METHOD_NOT_ALLOWED');
+        let body='';for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024)throw new WorkbenchError('INVALID_REQUEST');}
+        let input;try{input=JSON.parse(body);}catch{throw new WorkbenchError('INVALID_REQUEST');}
+        if(!input||Object.keys(input).length!==1||typeof input.ticketId!=='string')throw new WorkbenchError('INVALID_REQUEST');
+        const {ticketIds}=await playbooks();if(!ticketIds.has(input.ticketId))throw new WorkbenchError('NOT_FOUND');
+        try{const service=await builder();sendJson(request,response,200,await service.build(input.ticketId));}catch(error){throw new WorkbenchError(error.code==='MEMORY_SOURCE_NOT_ALLOWED'?'NOT_FOUND':'DISCOVERY_UNAVAILABLE');}
+      }
+      else if(path==='/api/memory-periodic-test'){
+        if(!['GET','HEAD'].includes(request.method)||!options.memoryPeriodicTestPath||new URL(request.url,'http://localhost').search)throw new WorkbenchError('NOT_FOUND');
+        const receipt=await periodicReceipt();if(!receipt)throw new WorkbenchError('NOT_FOUND');
+        const body=Buffer.from(renderPeriodicMemoryTest(receipt));response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Length':body.length});response.end(request.method==='HEAD'?undefined:body);return;
+      }
+      else if(path==='/api/memory-evaluation'){
+        if(!options.memoryEvaluationPath||new URL(request.url,'http://localhost').search)throw new WorkbenchError('NOT_FOUND');
+        const receipt=await comparisonReceipt();
+        const body=Buffer.from(renderLiveEvaluation(receipt));response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Length':body.length});response.end(request.method==='HEAD'?undefined:body);return;
+      }
+      else if(path==='/api/ticket-memory'||path==='/api/memory-playbook-image'){
+        const params=new URL(request.url,'http://localhost').searchParams;
+        const imageRequest=path==='/api/memory-playbook-image',keys=imageRequest?['memory','image']:['ticket'];
+        if([...params.keys()].some(key=>!keys.includes(key))||keys.some(key=>params.getAll(key).length!==1||!params.get(key)))throw new WorkbenchError('INVALID_REQUEST');
+        const {records,ticketIds,builds,defaultModel}=await playbooks();
+        if(imageRequest){
+          const record=records.find(r=>r.id===params.get('memory')),image=record?.attachments?.find(i=>i.id===params.get('image')&&record.requiredSourceIds.includes(i.sourceId)&&record.sourceRefs.some(ref=>ref.sourceId===i.sourceId&&String(ref.messageId)===String(i.messageId)&&ref.sourceRef&&ref.sourceRef===i.sourceRef&&Date.parse(ref.at)===Date.parse(i.at)));
+          if(!image)throw new WorkbenchError('NOT_FOUND');
+          try{const {body,mime}=await memoryImageBytes(image,options.checkoutRoot||CHECKOUT_ROOT);response.writeHead(200,{'Content-Type':mime,'Content-Length':body.length});response.end(request.method==='HEAD'?undefined:body);return;}catch{throw new WorkbenchError('NOT_FOUND');}
+        }
+        if(!ticketIds.has(params.get('ticket')))throw new WorkbenchError('NOT_FOUND');
+        const service=await discovery(),runtime=service?await service.memoryList():{records:[],runs:[]};runtime.runs.push(...periodicMemoryRuns(await periodicReceipt()));
+        sendJson(request,response,200,{...ticketMemoryTrace(params.get('ticket'),records.map(publicPlaybook),runtime),builder:{configured:Boolean(options.memoryBuilderPath||options.memoryBuilderService),active:Boolean(memoryBuilder?.active),model:defaultModel||'deepseek-flash',lastBuild:builds[params.get('ticket')]||null}});
+      }
       else if (path === '/api/discovery' || path === '/api/discovery-action' || path === '/api/discovery-memory') {
         const service=await discovery();
         if(!service){
           if(request.method==='POST')throw new WorkbenchError('DISCOVERY_UNAVAILABLE');
+          if(path==='/api/discovery-memory'){if(new URL(request.url,'http://localhost').search)throw new WorkbenchError('INVALID_DISCOVERY_REQUEST');const candidates=await playbooks();sendJson(request,response,200,{configured:false,records:[],runs:[],candidatePlaybooks:candidates.records.map(publicPlaybook),memoryBuilder:{configured:Boolean(options.memoryBuilderPath||options.memoryBuilderService),active:Boolean(memoryBuilder?.active),model:candidates.defaultModel}});return;}
           sendJson(request,response,200,{configured:false,agent:await loadDiagnosticAgent(),sources:[],runs:[],capabilities:{modelReady:false,executorReady:false}});return;
         }
         let result;
@@ -563,7 +670,7 @@ export function createWorkbenchServer(options = {}) {
           }else{
             if(path==='/api/discovery-memory'){
               if(new URL(request.url,'http://localhost').search)throw new WorkbenchError('INVALID_DISCOVERY_REQUEST');
-              sendJson(request,response,200,await service.memoryList());return;
+              const memory=await service.memoryList();const candidates=await playbooks();const transfer=await periodicReceipt();memory.runs.push(...periodicMemoryRuns(transfer));sendJson(request,response,200,{...memory,periodicTestAvailable:Boolean(transfer),evaluationAvailable:Boolean(options.memoryEvaluationPath),candidatePlaybooks:candidates.records.map(publicPlaybook),memoryBuilder:{configured:Boolean(options.memoryBuilderPath||options.memoryBuilderService),active:Boolean(memoryBuilder?.active),model:candidates.defaultModel}});return;
             }
             if(path!=='/api/discovery')throw new WorkbenchError('METHOD_NOT_ALLOWED');
             const params=new URL(request.url,'http://localhost').searchParams;

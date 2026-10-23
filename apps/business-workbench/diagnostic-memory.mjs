@@ -120,7 +120,7 @@ function snapshot(value) { const data = clone(value); return freeze({ ...data, h
 export function selectMemorySnapshot(options = {}) {
   const { records = [], question = '', source, cutoff, maxRecords = 4, maxChars = 6000 } = options;
   const excluded = [], eligible = [];
-  for (const record of records) { const why = exclusion(record, options); if (why) excluded.push({ id: record.id, reason: why }); else eligible.push(record); }
+  for (const record of records) { const why = exclusion(record, options) || (record.applicability?.matchAny?.length && !record.applicability.matchAny.some(term => question.toLowerCase().includes(term.toLowerCase())) ? 'DIRECTION_MISMATCH' : null); if (why) excluded.push({ id: record.id, reason: why }); else eligible.push(record); }
   const conflicting = conflicts(eligible);
   const ranked = eligible.map(record => ({ record, ...relevance(record, question) })).sort((a, b) => b.score - a.score || a.record.id.localeCompare(b.record.id));
   const selected = []; let chars = 0;
