@@ -104,7 +104,7 @@ test('builder uses the installer environment rather than a maintainer credential
 test('budget ledger must remain outside the checkout including future and symlinked directories',async()=>{
  const f=await fixture();try{
   const link=join(f.data,'checkout-link');await symlink(f.checkout,link);
-  for(const budgetDirectory of [f.checkout,join(f.checkout,'new-budget'),join(link,'new-budget')]){
+  for(const budgetDirectory of [f.checkout,join(f.checkout,'new-budget'),join(link,'new-budget'),f.root+'/not-created/../checkout/new-budget']){
    await writeFile(f.configPath,JSON.stringify({...f.config,budgetDirectory}));
    await assert.rejects(loadMemoryBuildInputs(f.configPath,f.checkout),/MEMORY_PRIVATE_PATH_INVALID/);
   }

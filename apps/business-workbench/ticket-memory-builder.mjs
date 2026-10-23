@@ -1,6 +1,6 @@
 import {MEMORY_PATTERN_VERSION,MEMORY_DIRECTIONS,memoryDirection} from './memory-pattern.mjs';
 import {readFile,writeFile,realpath,stat,mkdir,open,unlink,rename} from 'node:fs/promises';
-import {dirname,relative,isAbsolute,join} from 'node:path';
+import {dirname,relative,isAbsolute,join,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {prepareTicketSession} from './memory-session.mjs';
@@ -24,7 +24,8 @@ async function privateDirectoryTarget(path,checkoutRoot){
  while(true){
   try{
    const actual=await realpath(ancestor);
-   if(!(await stat(actual)).isDirectory()||within(root,actual))throw fail('MEMORY_PRIVATE_PATH_INVALID');
+   const destination=resolve(actual,relative(ancestor,path));
+   if(!(await stat(actual)).isDirectory()||within(root,actual)||within(root,destination))throw fail('MEMORY_PRIVATE_PATH_INVALID');
    return;
   }catch(error){
    if(error.code!=='ENOENT'||dirname(ancestor)===ancestor)throw error;
