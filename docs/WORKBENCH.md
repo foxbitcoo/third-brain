@@ -17,7 +17,7 @@ npm start
 | 业务问答 | 原始依据、富文本、来源引用及实际模型问答 | 已导入候选与自己的模型 |
 | 信息源管理 | 授权导入、关注档位、会邀、会议记录、文档版本和原图 | OAuth；扩展采集需对应接口权限 |
 | 主动发现 | 可点击 Loop、标准 Query、分流、逐轮返回、核查、报告、历史工单与看板快照 | 本人授权的指标口径、只读查数方案、MCP 和模型 |
-| 项目记忆 | 候选审阅、证据链、适用范围、召回及注入审计 | 本人历史工单/报告、确认记录和本地记忆存储 |
+| 项目记忆 | 七段经验卡、方向分类、原图、自动生效及实际带入记录 | 本人授权工单、会话、原图及本地记忆配置 |
 
 公开仓库包含上述通用实现和离线契约测试。未配置的数据源显示未就绪；不复制维护者的工作主线、历史工单、Memory、定时任务、私有文档链接或授权。真实办公接口连通性取决于安装者权限；离线测试不代表其账号已获准。
 
@@ -30,6 +30,8 @@ npm start
 - `historyPath`、`readingGuidePath`、`sourceMapPath`、`displayTitlesPath`、`documentPolicyPath`。
 - `discoveryPath`：diagnostic-config-v1 配置；`storeDirectory`、`memoryDirectory` 均须在仓库外；sources 中逐项明确 `userAuthorized`、版本、定义和经核验的只读 recipes。
 - `historicalTicketsPath`、`historicalTicketScopePath`、`discoveryBoardsPath`、`questionContextsPath`、`historicalMediaPath`、`contextSourcesPath`、`worklinesPath`。
+
+- `memoryPlaybooksPath`、`memoryBuilderPath`、`memoryReusePath`、`memoryPeriodicTestPath`、`memoryEvaluationPath`：工单记忆存储、提取设置、使用范围和可选试验结果；详见 [Memory 配置](product/memory.md)。
 
 所有路径使用安装者自己的绝对路径，服务在每次访问时重新检查文件边界。字段契约与校验代码在 `apps/business-workbench/`，指标分析规则见 [分析契约](product/DATA-DIAGNOSTIC-CONTRACT.md) 和 [Agent 规范](../skills/data-diagnostic-agent/SKILL.md)。
 

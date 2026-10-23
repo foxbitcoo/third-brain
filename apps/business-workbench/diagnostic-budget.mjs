@@ -104,6 +104,9 @@ export async function createDiagnosticBudget({ directory, dailyLimitCny = 10, no
           // A repeated reservation never authorizes a second external dispatch.
           return { changed: false, value: { allowed: false, reason: 'RESERVATION_ALREADY_EXISTS', reservation: structuredClone(previous), budget: view(data, day) } };
         }
+        const imageStage = ['context-images','memory-image-extraction'].includes(stage);
+        const imageUse = dayValue(data, day).entries.filter(row => ['context-images','memory-image-extraction'].includes(row.stage)).reduce((sum,row) => sum + row.spentMicros + (['RESERVED','UNKNOWN_RESERVED'].includes(row.status) ? row.reservedMicros : 0),0);
+        if(imageStage && imageUse + reservedMicros > micros(2))return {changed:false,value:{allowed:false,reason:'IMAGE_DAILY_BUDGET_LIMIT',budget:view(data,day)}};
         const budget = view(data, day);
         if (reservedMicros > Math.round(budget.remainingCny * 1e6)) return { changed: false, value: { allowed: false, reason: 'DAILY_BUDGET_LIMIT', budget } };
         data.days[day] ||= { limitMicros: configuredLimit, entries: [] };

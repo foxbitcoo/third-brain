@@ -72,3 +72,12 @@ test('env-file-only integration and credential settings reach the actual diagnos
  assert.equal(options.diagnosticEnvironment.DELPER_MCP_URL,'https://example.invalid/mcp');
  assert.equal(options.diagnosticEnvironment.DELPER_MCP_TOKEN,'synthetic-file-token');
 });
+
+test('installed configuration accepts external Memory files without requiring an active model',async t=>{
+ const directory=await mkdtemp(path.join(tmpdir(),'installed-memory-config-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const root=path.join(directory,'checkout');await mkdir(root);
+ const integrationFile=path.join(directory,'integrations.json'),memoryFile=path.join(directory,'playbooks.json');
+ await writeFile(integrationFile,JSON.stringify({memoryPlaybooksPath:memoryFile,memoryBuilderPath:path.join(directory,'builder.json'),memoryReusePath:path.join(directory,'reuse.json'),memoryPeriodicTestPath:path.join(directory,'test.json'),memoryEvaluationPath:path.join(directory,'evaluation.json')}));
+ const options=await createInstalledOptions({root,env:{THIRD_BRAIN_WORKBENCH_CONFIG:integrationFile,THIRD_BRAIN_DATA_DIRECTORY:path.join(directory,'user-data')}});
+ assert.equal(options.memoryPlaybooksPath,memoryFile);assert.equal(options.memoryBuilderPath,path.join(directory,'builder.json'));
+});

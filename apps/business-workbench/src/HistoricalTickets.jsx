@@ -1,3 +1,4 @@
+import TicketMemory from './TicketMemory.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@douyinfe/semi-ui/lib/es/button/index.js';
 import Select from '@douyinfe/semi-ui/lib/es/select/index.js';
@@ -34,10 +35,11 @@ function TicketImage({ image }) {
   </figure>;
 }
 
-export function TicketDetail({ ticket, onUseForAnalysis }) {
+export function TicketDetail({ ticket, onUseForAnalysis, initialTab='conversation' }) {
   const events = Array.isArray(ticket.events) ? ticket.events : [];
   const eventNodes = useRef(new Map());
   const [focusedEvent, setFocusedEvent] = useState('');
+  const [detailTab,setDetailTab]=useState(initialTab);
   const focusEvent = id => { setFocusedEvent(id); eventNodes.current.get(id)?.scrollIntoView({block:'start',behavior:'auto'}); };
   const colors = { question: 'blue', reply: 'green', followup: 'orange', image: 'grey' };
   return <article className="history-detail" aria-label="历史工单详情">
@@ -47,6 +49,8 @@ export function TicketDetail({ ticket, onUseForAnalysis }) {
     <p className="history-status-note">{prose(ticket.statusReason) || '历史处理状态尚未核实。'} 历史答复不代表原因已经验证，历史问题也不等同于今日待办。</p>
     {onUseForAnalysis && <Button theme="light" onClick={()=>onUseForAnalysis(ticket)}>以此问题发起分析</Button>}
     {text(ticket.sourceSummary) && <p className="muted">来源：{prose(ticket.sourceSummary)}</p>}
+    <div className="memory-tabs" role="group" aria-label="工单详情"><Button aria-pressed={detailTab==='conversation'} theme={detailTab==='conversation'?'light':'borderless'} onClick={()=>setDetailTab('conversation')}>对话与原图</Button><Button aria-pressed={detailTab==='memory'} theme={detailTab==='memory'?'light':'borderless'} onClick={()=>setDetailTab('memory')}>记忆</Button></div>
+    {detailTab==='memory'?<TicketMemory ticketId={ticket.id}/>:<>
     <section className="history-conversation"><div className="history-section-heading"><h3>提问与答复记录</h3><span>{events.length} 条记录</span></div>
       {events.length ? <ol className="history-timeline">{events.map((event, index) => <li className={`history-event history-event-${Object.hasOwn(kinds, event.kind) ? event.kind : 'other'} ${focusedEvent === event.id ? 'is-reply-target' : ''}`} ref={node => { if (node) eventNodes.current.set(event.id,node); else eventNodes.current.delete(event.id); }} key={event.id || index}>
         <div className="history-event-heading"><Tag color={colors[event.kind] || 'grey'}>{kinds[event.kind] || '历史记录'}</Tag><ConversationPerson person={event.participant || {name:event.speaker}} /></div>
@@ -63,11 +67,13 @@ export function TicketDetail({ ticket, onUseForAnalysis }) {
     {Array.isArray(ticket.sourceCandidates) && ticket.sourceCandidates.length > 0 && <details className="answer-section"><summary>相关数据源</summary>{ticket.sourceCandidates.map((source, index) => <p className="answer-line" key={source.id || index}>{text(source.title) || '来源名称未记录'} <Tag>{source.verified === true ? '已核验' : '待核验'}</Tag></p>)}</details>}
     {text(ticket.analysisNotes) && <details className="answer-section"><summary>整理备注</summary><p className="answer-line" style={{ whiteSpace: 'pre-wrap' }}>{prose(ticket.analysisNotes)}</p></details>}
     {Array.isArray(ticket.boundaries) && ticket.boundaries.length > 0 && <details className="answer-section"><summary>资料范围与缺口</summary>{ticket.boundaries.map((item, index) => <p className="answer-line" key={index}>{text(item)}</p>)}</details>}
+    </>}
   </article>;
 }
 
 export default function HistoricalTickets({ masked, onUseForAnalysis }) {
   const [data, setData] = useState(null), [ticket, setTicket] = useState(null);
+  const [selectedTab,setSelectedTab]=useState('conversation');
   const [filter, setFilter] = useState('ALL'), [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(false), [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState(''), [detailError, setDetailError] = useState('');
@@ -96,12 +102,12 @@ export default function HistoricalTickets({ masked, onUseForAnalysis }) {
     setTicket(null); setSelectedId(''); setDetailLoading(false); setDetailError('');
   }
 
-  async function select(id, opener) {
+  async function select(id, opener, tab='conversation') {
     if (maskedRef.current || typeof id !== 'string' || !id) return;
     if (opener) detailOpener.current = opener;
     const version = epoch.current, sequence = ++detailSequence.current;
     detailController.current?.abort(); const controller = new AbortController(); detailController.current = controller;
-    setTicket(null); setSelectedId(id); setDetailError(''); setDetailLoading(true);
+    setTicket(null); setSelectedId(id); setSelectedTab(tab); setDetailError(''); setDetailLoading(true);
     try {
       const response = await fetch(`/api/discovery-history?id=${encodeURIComponent(id)}`, { method: 'GET', cache: 'no-store', signal: controller.signal });
       if (!response.ok) throw new Error('HISTORY_DETAIL_UNAVAILABLE');
@@ -120,6 +126,8 @@ export default function HistoricalTickets({ masked, onUseForAnalysis }) {
     else { detailOpener.current = null; setData(null); setTicket(null); setSelectedId(''); setError(''); setDetailError(''); setFilter('ALL'); }
     return () => { epoch.current++; detailSequence.current++; listController.current?.abort(); detailController.current?.abort(); };
   }, [masked]);
+
+  useEffect(()=>{if(masked||!data?.configured)return;const id=new URLSearchParams(window.location.search).get('ticket');if(id&&data.tickets?.some(t=>t.id===id))select(id,null,'memory');},[data,masked]);
 
   useEffect(() => {
     if (!selectedId || masked) return;
@@ -155,7 +163,7 @@ export default function HistoricalTickets({ masked, onUseForAnalysis }) {
         { title: '历史状态', dataIndex: 'status', render: value => <Tag>{statuses[value] || statuses.UNKNOWN}</Tag> },
         { title: '最近活动', dataIndex: 'lastActivityAt', render: date },
         { title: '来源 / 依据', render: (_value, item) => `${count(item.sourceCount)} / ${count(item.evidenceCount)}` },
-        { title: '记录', render: (_value, item) => <Button theme={selectedId === item.id ? 'light' : 'borderless'} aria-haspopup="dialog" aria-expanded={selectedId === item.id} onClick={event => select(item.id, event.currentTarget)}>查看原文</Button> },
+        { title: '记录', render: (_value, item) => <><Button theme={selectedId === item.id ? 'light' : 'borderless'} aria-haspopup="dialog" aria-expanded={selectedId === item.id} onClick={event => select(item.id, event.currentTarget)}>查看原文</Button><Button theme="borderless" onClick={event=>select(item.id,event.currentTarget,'memory')}>查看记忆</Button></> },
       ]} /> : <p className="muted">当前范围内暂无此类历史工单。</p>}
     </>}
     <SideSheet title="历史问答原文" visible={Boolean(selectedId)} onCancel={closeDetail} placement="right" width="min(760px, 100vw)" className="evidence-sheet history-sheet" aria-label="历史问答原文" closeOnEsc={true} maskClosable={true} closeIcon={<span aria-label="关闭历史问答">×</span>} afterVisibleChange={visible => {
@@ -170,7 +178,7 @@ export default function HistoricalTickets({ masked, onUseForAnalysis }) {
       <div ref={detailContent} className="evidence-content" aria-busy={detailLoading}>
         {detailLoading && <p role="status">正在读取原始问答…</p>}
         {detailError && <><p role="alert">{detailError}</p><Button onClick={() => select(selectedId)}>重新读取</Button></>}
-        {ticket && <TicketDetail ticket={ticket} onUseForAnalysis={onUseForAnalysis?value=>{onUseForAnalysis(value);closeDetail();}:null} />}
+        {ticket && <TicketDetail key={ticket.id} ticket={ticket} initialTab={selectedTab} onUseForAnalysis={onUseForAnalysis?value=>{onUseForAnalysis(value);closeDetail();}:null} />}
       </div>
     </SideSheet>
   </section>;

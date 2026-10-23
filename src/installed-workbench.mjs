@@ -36,7 +36,7 @@ export function projectInstalledDataset(workspace, config, attention, now = new 
   return { schema_version: 'business-qa-v1', dataset_id: 'installed-private-workspace', as_of: asOf, cases };
 }
 
-const CONFIG_PATH_FIELDS = new Set(['dataPath','attentionPath','historyPath','readingGuidePath','sourceMapPath','displayTitlesPath','documentPolicyPath','discoveryPath','historicalTicketsPath','historicalTicketScopePath','discoveryBoardsPath','questionContextsPath','historicalMediaPath','contextSourcesPath','worklinesPath']);
+const CONFIG_PATH_FIELDS = new Set(['dataPath','attentionPath','historyPath','readingGuidePath','sourceMapPath','displayTitlesPath','documentPolicyPath','discoveryPath','historicalTicketsPath','historicalTicketScopePath','discoveryBoardsPath','questionContextsPath','historicalMediaPath','contextSourcesPath','worklinesPath','memoryReusePath','memoryEvaluationPath','memoryBuilderPath','memoryPlaybooksPath','memoryPeriodicTestPath']);
 async function externalPath(file, root) {
   if (!path.isAbsolute(file)) throw Error('INVALID_WORKBENCH_CONFIG');
   const target=await realpath(file), directory=await realpath(root), relative=path.relative(directory,target);

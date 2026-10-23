@@ -8,6 +8,7 @@ import { runDiagnostic } from './proactive-discovery.mjs';
 import { ReadonlyDelperClient, createQueryExecutor, createDiagnosticModel, validateRecipe, hash } from './diagnostic-adapters.mjs';
 import { loadDiagnosticAgent, createKnowledgeSnapshot, diagnosticRunView } from './diagnostic-agent.mjs';
 import { createDiagnosticMemoryStore, selectMemorySnapshot, revalidateMemorySnapshot } from './diagnostic-memory.mjs';
+import { mergeMemoryContext } from './diagnostic-playbook-memory.mjs';
 import { diagnosticMemorySourceContext } from './diagnostic-memory-sources.mjs';
 
 const error = code => Object.assign(new Error(code), { code });
@@ -38,7 +39,7 @@ export async function loadDiagnosticConfig(path, checkoutRoot) {
   return cfg;
 }
 
-export async function createDiagnosticService({configPath,checkoutRoot,contextFor=async()=>[],resolveQuestionContext=async()=>null,modelProvider='deepseek',withMemory=true,authorize=async()=>true,authorizeMemorySource=async()=>false,model,query,client,env=process.env,store:injectedStore,agentPath,budget:injectedBudget,memoryStore:injectedMemoryStore}) {
+export async function createDiagnosticService({configPath,checkoutRoot,contextFor=async()=>[],resolveQuestionContext=async()=>null,modelProvider='deepseek',withMemory=true,authorize=async()=>true,authorizeMemorySource=async()=>false,referenceMemoryFor=async()=>({records:[],context:{}}),comparisonRunsFor=async()=>[],model,query,client,env=process.env,store:injectedStore,agentPath,budget:injectedBudget,memoryStore:injectedMemoryStore}) {
   const config=await loadDiagnosticConfig(configPath,checkoutRoot);
   client ||= new ReadonlyDelperClient({endpoint:env.DELPER_MCP_URL,credential:async()=>env.DELPER_MCP_TOKEN});
   const store=injectedStore||await createDiagnosticStore(config.storeDirectory);
@@ -53,7 +54,11 @@ export async function createDiagnosticService({configPath,checkoutRoot,contextFo
   } catch(cause) { if(!injectedStore)await store.close();throw cause; }
   const jobs=new Map();
   const memoryContext=source=>diagnosticMemorySourceContext({path:memorySourcesPath,checkoutRoot,source,authorizeSource:authorizeMemorySource});
-  const currentMemory=async({run,source})=>!withMemory?null:revalidateMemorySnapshot(run.memorySnapshot,{records:await memoryStore.list(),source,cutoff:run.memorySnapshot?.cutoff||run.createdAt,...await memoryContext(source)});
+  const memoryBundle=async source=>{
+    const reference=await referenceMemoryFor(source);
+    return {records:[...await memoryStore.list(),...reference.records],context:mergeMemoryContext(await memoryContext(source),reference.context)};
+  };
+  const currentMemory=async({run,source})=>!withMemory?null:(async()=>{const bundle=await memoryBundle(source);return revalidateMemorySnapshot(run.memorySnapshot,{records:bundle.records,source,cutoff:run.memorySnapshot?.cutoff||run.createdAt,...bundle.context});})();
   const planner=model||createDiagnosticModel({memoryFor:currentMemory,provider:modelProvider,withMemory,env});
   const execute=query||createQueryExecutor({client});
   let closing=false;
@@ -67,7 +72,7 @@ export async function createDiagnosticService({configPath,checkoutRoot,contextFo
   const currentConfig=()=>loadDiagnosticConfig(configPath,checkoutRoot);
   async function memoryEvidenceAllowed(run,source){
     if(!run.memorySnapshot?.selected?.length)return true;
-    const context=await memoryContext(source);
+    const {context}=await memoryBundle(source);
     return run.memorySnapshot.selected.every(record=>record.sourceRefs.every(ref=>context.allowedSourceIds.includes(ref.sourceId)&&context.sourceVersions[ref.sourceId]===ref.version&&context.sourceHashes?.[ref.sourceId]===ref.hash));
   }
   async function permitted(run,source){
@@ -108,18 +113,18 @@ export async function createDiagnosticService({configPath,checkoutRoot,contextFo
   return {
     async list(){
       const cfg=await currentConfig();const rows=[];
-      for(const run of await store.list())rows.push(summary(await visible(run)));
+      for(const run of [...await store.list(),...await comparisonRunsFor()])rows.push(summary(await visible(run)));
       return {configured:true,agent:await loadDiagnosticAgent(agentPath),sources:cfg.sources.map(publicSource),runs:rows,budget:{estimatedMaxCny:8,maxRounds:3,maxQueries:3,...await budget.snapshot()},capabilities:{modelReady:Boolean(model||env.DEEPSEEK_API_KEY),modelConnection:model||env.DEEPSEEK_API_KEY?'CONFIGURED_NOT_VERIFIED':'NOT_CONFIGURED',executorReady}};
     },
-    async get(id){const run=await store.get(id);if(!run)throw error('DISCOVERY_NOT_FOUND');return {run:await visible(run)};},
+    async get(id){const run=await store.get(id)||(await comparisonRunsFor()).find(r=>r.id===id);if(!run)throw error('DISCOVERY_NOT_FOUND');return {run:await visible(run)};},
     async memoryList(){
-      const cfg=await currentConfig();const contexts=await Promise.all(cfg.sources.map(memoryContext));
+      const cfg=await currentConfig();const bundles=await Promise.all(cfg.sources.map(memoryBundle));const contexts=bundles.map(b=>b.context);
       const authorized=new Set(contexts.flatMap(context=>context.allowedSourceIds));
       const versions=Object.assign({},...contexts.map(context=>context.sourceVersions));
       const hashes=Object.assign({},...contexts.map(context=>context.sourceHashes));
-      const records=(await memoryStore.list()).filter(record=>record.sourceRefs.every(ref=>authorized.has(ref.sourceId)&&versions[ref.sourceId]===ref.version&&hashes[ref.sourceId]===ref.hash));
+      const records=[...new Map(bundles.flatMap(b=>b.records).map(r=>[r.id,r])).values()].filter(record=>record.sourceRefs.every(ref=>authorized.has(ref.sourceId)&&versions[ref.sourceId]===ref.version&&hashes[ref.sourceId]===ref.hash));
       const runs=[];
-      for(const item of await store.list()){const run=await visible(item);if(run.status!=='SUPPRESSED')runs.push({id:run.id,question:run.question,status:run.status,memorySnapshot:run.memorySnapshot,usage:{receipts:run.usage?.receipts||[]}});}
+      for(const item of [...await store.list(),...await comparisonRunsFor()]){const run=await visible(item);if(run.status!=='SUPPRESSED')runs.push({id:run.id,question:run.question,status:run.status,historicalTicketId:run.questionContext?.historicalTicketId||run.evaluation?.parentTicketId||null,memorySnapshot:run.memorySnapshot,usage:{receipts:run.usage?.receipts||[]}});}
       return {records,runs,scope:'PRIVATE_DIAGNOSTIC_REFERENCE_MEMORY',globalCodexMemoryChanged:false};
     },
     async memoryAction(input){return mutation(async()=>{
@@ -142,7 +147,8 @@ export async function createDiagnosticService({configPath,checkoutRoot,contextFo
       const businessContext=await contextFor(questionContext?.enrichedQuery||question);
       const agentSnapshot=await loadDiagnosticAgent(agentPath);
       const route=classifyDiagnosticQuestion(question,source);
-      const memorySnapshot=selectMemorySnapshot({records:withMemory?await memoryStore.list():[],question:questionContext?.enrichedQuery||question,source,cutoff:new Date().toISOString(),...await memoryContext(source)});
+      const bundle=await memoryBundle(source);
+      const memorySnapshot=selectMemorySnapshot({records:withMemory?bundle.records:[],question:questionContext?.enrichedQuery||question,source,cutoff:new Date().toISOString(),...bundle.context});
       const fullLimits={maxRounds:3,maxQueries:3,maxModelCalls:7,maxRows:2000};
       route.fullLimits=fullLimits;
       const run=await store.create({question,facts,questionContext,modelProvider:planner.provider?{id:planner.provider.id,model:planner.provider.model}:null,memoryEnabled:withMemory,trigger:'manual',sourceId:source.id,sourceHash:hash(source),sourceVersion:source.version,businessContext,agentSnapshot,knowledge,memorySnapshot,route,limits:fullLimits,turnIndex:0});

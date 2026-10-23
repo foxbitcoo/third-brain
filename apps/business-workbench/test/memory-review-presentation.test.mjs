@@ -16,9 +16,9 @@ test('all statuses including disabled and candidate stay inspectable, filtered h
 test('actual injection is receipt backed and matching alone remains prepared', () => {
   const record = { id: 'm' };
   const run = { id: 'r', memorySnapshot: { selected: [{ id: 'm', version: 2 }] } };
-  assert.match(memoryRunReceipts(record, [run])[0].state, /未取得/);
+  assert.match(memoryRunReceipts(record, [run])[0].state, /尚未收到/);
   run.usage = { receipts: [{ stage: 'rewrite', round: 1, memoryInjection: { status: 'PROVIDER_RESPONDED', memoryIds: ['m'], block: 'actual block' } }] };
-  assert.equal(memoryRunReceipts(record, [run])[0].state, '已注入并取得响应');
+  assert.equal(memoryRunReceipts(record, [run])[0].state, '已用于回答');
   assert.equal(memoryRunReceipts({ id: 'other' }, [run]).length, 0);
 });
 test('board selection persists exact snapshot rather than substituting latest or push date', () => {
