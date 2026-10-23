@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
@@ -98,5 +98,15 @@ test('builder uses the installer environment rather than a maintainer credential
  const f=await fixture();let auth;try{
   const builder=createTicketMemoryBuilder({configPath:f.configPath,checkoutRoot:f.checkout,env:{DEEPSEEK_API_KEY:'synthetic-installer-key'},fetchImpl:async(url,options)=>{auth=options.headers.Authorization;return provider()(url,options);}});
   assert.equal((await builder.build('t')).status,'COMPLETE');assert.equal(auth,'Bearer synthetic-installer-key');
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+
+test('budget ledger must remain outside the checkout including future and symlinked directories',async()=>{
+ const f=await fixture();try{
+  const link=join(f.data,'checkout-link');await symlink(f.checkout,link);
+  for(const budgetDirectory of [f.checkout,join(f.checkout,'new-budget'),join(link,'new-budget')]){
+   await writeFile(f.configPath,JSON.stringify({...f.config,budgetDirectory}));
+   await assert.rejects(loadMemoryBuildInputs(f.configPath,f.checkout),/MEMORY_PRIVATE_PATH_INVALID/);
+  }
  }finally{await rm(f.root,{recursive:true,force:true});}
 });

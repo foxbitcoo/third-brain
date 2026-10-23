@@ -18,6 +18,20 @@ const MEMORY_SCHEMA={patternVersion:MEMORY_PATTERN_VERSION,memories:[{directionI
 const SYSTEM=MULTIMODAL_MEMORY_SYSTEM.slice(0,MULTIMODAL_MEMORY_SYSTEM.indexOf('输出JSON：'))+' 严格按七段整理：【原文】由输入证据原样保留，不要重写；【问题模式】typicalQuestion概括成一句；【下次如何回答】steps保留最多4步具体查数/分析顺序；【交付清单】outputs；【适用条件】useWhen；【不能直接套用】boundaries，仅写不适用条件和禁止沿用的历史结论；【仍需当前资料】inputs和uncertainties，明确本期数据、周期、口径和缺失材料。不要把缺失资料混进不适用条件。每个列表尽量2—4条、避免过程说明和工程术语。方向从'+JSON.stringify(MEMORY_DIRECTIONS.map(({id,label})=>({id,label})))+'中选择；同方向的月度/季度及上下游问题可以复用方法，但不复用数值或通过阈值。原始资料只支持讨论建议时明确写成待查步骤，不声称执行过。通过程序检查的记忆自动生效，无需人工逐条确认。最多产出1条方法。没有可复用分析步骤时输出memories=[]并说明原因；不要把单纯提问扩写成已经执行的方法。typicalQuestion必须用变量描述可重复问题，不带当期数值；methodBasis必须为REPLY_EVIDENCE（有历史答复支持）或DISCUSSION_ONLY（仅讨论建议）。每一步必须输出why与evidenceIds。严格输出JSON对象并包含所有以下字段，不得遗漏typicalQuestion、methodBasis：'+JSON.stringify(MEMORY_SCHEMA);
 const fail=code=>Object.assign(new Error(code),{code});
 const within=(root,path)=>{const r=relative(root,path);return !r||r!=='..'&&!r.startsWith('../')&&!isAbsolute(r);};
+async function privateDirectoryTarget(path,checkoutRoot){
+ const root=await realpath(checkoutRoot);
+ let ancestor=path;
+ while(true){
+  try{
+   const actual=await realpath(ancestor);
+   if(!(await stat(actual)).isDirectory()||within(root,actual))throw fail('MEMORY_PRIVATE_PATH_INVALID');
+   return;
+  }catch(error){
+   if(error.code!=='ENOENT'||dirname(ancestor)===ancestor)throw error;
+   ancestor=dirname(ancestor);
+  }
+ }
+}
 async function privateJson(path,checkoutRoot,max=16*1024*1024){
  if(!isAbsolute(path||''))throw fail('MEMORY_CONFIG_INVALID');
  const actual=await realpath(path),root=await realpath(checkoutRoot),info=await stat(actual);
@@ -31,6 +45,7 @@ export async function loadMemoryBuildInputs(configPath,checkoutRoot){
  if(config.version!=='deepseek-ticket-memory/v1'||config.model!==MODEL||config.endpoint!==ENDPOINT||!isAbsolute(config.outputPath||'')||!isAbsolute(config.workDirectory||''))throw fail('MEMORY_CONFIG_INVALID');
  const paths=['ticketsPath','scopePath','attentionPath','messagesPath','originalsPath','mediaPath','seedPath','budgetDirectory'];
  if(paths.some(key=>!isAbsolute(config[key]||''))||paths.some(key=>config[key]===config.outputPath)||within(await realpath(checkoutRoot),await realpath(dirname(config.outputPath)))||dirname(config.outputPath)!==config.workDirectory)throw fail('MEMORY_CONFIG_INVALID');
+ await privateDirectoryTarget(config.budgetDirectory,checkoutRoot);
  const [history,scope,attention,graph,originals,media,seeds]=await Promise.all(paths.slice(0,7).map(key=>privateJson(config[key],checkoutRoot)));
  const scopeIds=historicalScopeIds(scope,{startAt:history.window.startAt??history.window.start,endAt:history.window.endAt??history.window.end});
  const sourceRefs=new Map(Object.entries(scope.sourceRefs)),excludedSourceIds=new Set(attention.sources.filter(s=>s.status==='excluded').map(s=>s.id));

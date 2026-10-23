@@ -3,13 +3,13 @@ import React, {useEffect,useRef,useState} from 'react';
 import {memoryInjectionView,memoryStageLabel} from './diagnostic-memory-presentation.mjs';
 import SourceRichText from './SourceRichText.jsx';
 
-import {memoryPattern,readableMemoryText} from '../memory-pattern.mjs';
+import {memoryPattern,readableMemoryText,memoryActivationLabel} from '../memory-pattern.mjs';
 const dateLabel=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'日期未记录';
 const bullets=(items,empty)=>items?.length?<ul>{items.map((item,i)=><li key={i}>{readableMemoryText(item)}</li>)}</ul>:<p className="muted">{empty}</p>;
 export function MemoryPlaybookCard({record}){
  const view=memoryPattern(record);
  return <article className="memory-playbook">
-  <div className="memory-playbook-meta">{view.direction.label} · {record.status==='DISABLED'?'已停用':'自动生效'}</div>
+  <div className="memory-playbook-meta">{view.direction.label} · {memoryActivationLabel(record)}</div>
   <h3>{readableMemoryText(record.title)}</h3>
   <details className="memory-original"><summary>原文 · 提问、答复与原图</summary>
    <SourceRichText value={record.originalQuestion||''}/>

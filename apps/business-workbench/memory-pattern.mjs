@@ -7,6 +7,12 @@ export const MEMORY_DIRECTIONS = Object.freeze([
  {id:'OTHER',label:'其他分析经验',terms:[]},
 ]);
 const strings=value=>Array.isArray(value)?value.filter(v=>typeof v==='string'&&v.trim()):[];
+export function memoryActivationLabel(record={}) {
+ if(record.status==='DISABLED')return '已停用';
+ if(record.status!=='SOURCE_VERIFIED')return '尚未启用';
+ if(record.activation?.status==='AUTO_ENABLED')return '自动生效';
+ return record.activation?.status==='REFERENCE_ENABLED'?'已启用':'尚未启用';
+}
 export function memoryDirection(record={}) {
  const explicit=record.direction?.id||record.directionId;
  const known=MEMORY_DIRECTIONS.find(d=>d.id===explicit);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {memoryPattern,memoryDirectionCounts} from '../memory-pattern.mjs';
+import {memoryPattern,memoryDirectionCounts,memoryActivationLabel} from '../memory-pattern.mjs';
 import {playbookReferenceMemory} from '../diagnostic-playbook-memory.mjs';
 import {memoryReviewRows} from '../src/memory-review-presentation.mjs';
 const record={id:'m',title:'月度账单核对',question:'{{月份}}账单如何核实',sourceTicketId:'july',knownAt:'2026-08-19T00:00:00Z',status:'SOURCE_VERIFIED',activation:{status:'AUTO_ENABLED',enabledAt:'2026-10-23T01:00:00Z'},direction:{id:'S1'},inputs:['本期两侧token'],steps:[{action:'核对服务端与网关token'}],outputs:['差异表'],boundaries:['不能沿用历史金额'],queryPattern:'核对本月两侧token',sourceRefs:[{sourceId:'im',messageId:'reply',at:'2026-08-19T00:00:00Z'}],useWhen:['月度账单核查'],doNotUseWhen:['统计范围不同'],currentMaterials:['本期账单'],originalModelOutput:{uncertainties:['计费规则待取得']}};
@@ -19,4 +19,12 @@ test('new successful extraction becomes eligible without per-record confirmation
  assert.equal(playbookReferenceMemory([record],policy,{id:'other',version:'1'}).records.length,0);
  assert.equal(playbookReferenceMemory([{...record,status:'CANDIDATE'}],policy,{id:'approved',version:'1'}).records.length,0);
  assert.equal(playbookReferenceMemory([record],{...policy,disabledIds:['m']},{id:'approved',version:'1'}).records.length,0);
+});
+
+test('candidate or unactivated memories cannot be labelled automatically active',()=>{
+ assert.equal(memoryActivationLabel(record),'自动生效');
+ assert.equal(memoryActivationLabel({...record,status:'CANDIDATE'}),'尚未启用');
+ assert.equal(memoryActivationLabel({...record,activation:null}),'尚未启用');
+ assert.equal(memoryActivationLabel({...record,status:'DISABLED'}),'已停用');
+ assert.equal(memoryActivationLabel({...record,activation:{status:'REFERENCE_ENABLED'}}),'已启用');
 });
