@@ -297,6 +297,12 @@ npm run release:gate -- --denylist /absolute/private/denylist.txt
 
 进一步阅读：[安装](docs/INSTALL.md) · [架构](docs/ARCHITECTURE.md) · [模型配置](docs/MODEL-CONFIG.md) · [首版限制](docs/PREVIEW-LIMITS.md) · [隐私说明](docs/PRIVACY.md)
 
+### 工作主线与文档同步
+
+已复核的成本等工作主线可以同步到一份指定的飞书文档，保留当前进展、原文依据与历史。资料采集和主线摘要分别记录更新时间；没有新的复核结果时，不把旧摘要显示成最新进展。真实业务内容与文档链接只保存在使用者的私有配置中。
+
+接入方式见[工作主线文档同步](docs/product/WORKLINE-DOCUMENT-SYNC.md)。
+
 ### 会邀与文档更新
 
 新增独立的资料刷新入口：会邀补充工作安排，参会人的私聊先进入监控候选；会后检查记录，已准入文档按版本及正文哈希更新，日报、周报的图片另存本地并记录识别覆盖。网页“信息源管理”可加载本地回执并查看原图。未核实关联和未读图片会保留待处理状态。

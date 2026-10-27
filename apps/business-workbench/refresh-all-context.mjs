@@ -5,6 +5,7 @@ import{dirname,resolve}from'node:path';import{fileURLToPath,pathToFileURL}from'n
 import{loadAttention,readPlan}from'./source-attention.mjs';
 import{namedCredential}from'./diagnostic-adapters.mjs';
 import{ingestContext}from'./ingest-context.mjs';
+import{syncReviewedWorkline}from'./sync-workline-document.mjs';
 import{documentEvidenceAllowed}from'./document-intake.mjs';
 import{createDiagnosticBudget}from'./diagnostic-budget.mjs';
 import{randomUUID}from'node:crypto';
@@ -58,6 +59,16 @@ export async function refreshAllContext(configPath){
   datasetPath:resolve(config.previousDashboard,'answer-cards.json')},null,2),{mode:0o600});
  const receipt=await ingestContext(integrationConfig,resolve(output,'data/context.json'));
  await writeFile(resolve(output,'integration-receipt.private.json'),JSON.stringify(receipt,null,2),{mode:0o600});
+ // Only a separately reviewed, current published card can be mirrored. An
+ // updated collection timestamp is never evidence that its summary was updated.
+ if(settings.worklineDocumentSyncPaths?.length){
+  receipt.worklineDocuments=[];
+  for(const path of settings.worklineDocumentSyncPaths){
+   try{const result=await syncReviewedWorkline(path,{minimumAsOf:collected.finishedAt});receipt.worklineDocuments.push({status:result.status,asOf:result.asOf,changed:result.changed});}
+   catch(error){receipt.worklineDocuments.push({status:'NOT_SYNCED',reason:/^[A-Z_]+$/.test(error.message||'')?error.message:'DOCUMENT_SYNC_FAILED'});}
+  }
+  await writeFile(resolve(output,'integration-receipt.private.json'),JSON.stringify(receipt,null,2),{mode:0o600});
+ }
  return receipt;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)console.log(JSON.stringify(await refreshAllContext(process.argv[2])));
