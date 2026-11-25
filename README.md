@@ -44,6 +44,17 @@
 
 累计索引和项目Memory使用私有本地文件。Embedding向量检索尚未接入；Mem0、OpenViking等只提供过设计参考，不表示已部署其服务。归档入口也不表示归档内容已自动同步到今天。
 
+### 文档证据与工作记忆的实现拓扑
+
+![第三大脑记忆拓扑：文档抽取、切片、证据索引、主线对齐与工单方法复用](docs/architecture/assets/memory-topology.png)
+
+- **增量抽取和章节切片。** 先核对来源权限与文档版本，可复用上次结果时跳过重读。正文导出成 Markdown，按标题划分章节，超长章节再按字符长度切开。每段附带来源定位、修订号和内容哈希。[文档刷新](src/context_refresh.py#L372) · [切片与证据记录](apps/business-workbench/document-intake.mjs#L75)
+- **累计索引与主线对齐。** 稳定证据标识用于去重，同一来源的不同版本保留供回查。主线显式引用单独记录，按主题词重合得到的关系标为推断关联。[历史记录归一化与主线关联](apps/business-workbench/history-index.mjs#L101)
+- **按权限召回。** 先过滤不可读来源，再按关键词重合、实体词、数字和时间线索筛选及排序，限制带入的条数与文本量。问答返回前再检查一次来源权限。[历史召回](apps/business-workbench/history-index.mjs#L218) · [回答返回前的权限检查](apps/business-workbench/server.mjs#L705)
+- **工单方法复用。** 在授权时间窗内沿显式引用和回复组织证据包，由模型提炼方法，再校验结构与引用。后续工单按适用范围带入步骤、输入和限制，并重新查本期数据。[工单证据包](apps/business-workbench/memory-session.mjs#L9) · [Memory 校验](apps/business-workbench/ticket-memory-builder.mjs#L60) · [方法复用](apps/business-workbench/diagnostic-playbook-memory.mjs#L10)
+
+**Embedding 向量检索尚未接入常规流程。** 当前历史召回使用词法匹配与时间、来源规则。独立评测用过向量检索，运行中的工作台仍使用图中的本地证据索引。
+
 ## Agent 的工作闭环
 
 ![第三大脑工作闭环：请求理解与分流、事实与工具查证、有据回答与本人判断、确认修正与反馈](docs/architecture/assets/agent-workflow.jpg)
