@@ -282,6 +282,18 @@ npm start
 
 详见 [隐私说明](docs/PRIVACY.md)。
 
+## 版本与发布记录
+
+当前公开版为 **`0.3.0`**，处于 Alpha 阶段。版本号采用 `MAJOR.MINOR.PATCH`，各段使用无前导零的整数。
+
+| 变更类型 | 版本规则 | 示例 |
+| --- | --- | --- |
+| 大版本里程碑或不兼容变更 | 升主版本，后两位归零 | `1.4.2 → 2.0.0` |
+| 向后兼容的新功能或用户可见改进 | 升次版本，补丁位归零 | `0.3.0 → 0.4.0` |
+| 向后兼容的 Bug 修复 | 升补丁版本 | `0.4.0 → 0.4.1` |
+
+Alpha 阶段沿用 `0.x.y`，达到首个稳定版标准后发布 `1.0.0`。正式发版时，同步更新根目录 `package.json` 和 `package-lock.json`，将 `vMAJOR.MINOR.PATCH` Git 标签指向对应的发布提交，并在 [GitHub Releases](https://github.com/foxbitcoo/third-brain/releases) 记录本次新增功能、改进、修复和适用的迁移说明。
+
 ## 发布检查
 
 ```bash
